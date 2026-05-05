@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0a14" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Blasters" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/blaster-icon.svg" />
+    <title>Blasters · Co-op</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
+    <link rel="dns-prefetch" href="https://storage.googleapis.com" />
+    <link rel="preload" href="/mediapipe-wasm/vision_wasm_internal.js" as="script" />
+    <link rel="preload" href="/mediapipe-wasm/vision_wasm_internal.wasm" as="fetch" type="application/wasm" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <div id="game-container">
+      <video id="webcam" autoplay playsinline muted></video>
+      <canvas id="game-canvas"></canvas>
+      <div id="ui-layer">
+        <div id="hud-game" class="hud-game is-hidden">
+          <h1 id="score-display">Score: 0</h1>
+          <div class="hud-row">
+            <span id="players-display"></span>
+          </div>
+          <button type="button" id="btn-back-menu" class="btn-menu btn-back-menu">Меню</button>
+        </div>
+        <div id="main-menu" class="menu-overlay is-hidden">
+          <button type="button" id="btn-fullscreen" class="btn-fullscreen" aria-label="На весь экран" hidden>
+            <span class="btn-fullscreen-on" aria-hidden="true">⛶</span>
+            <span class="btn-fullscreen-off" aria-hidden="true">⛶</span>
+            <span class="btn-fullscreen-label">На весь экран</span>
+          </button>
+          <div class="menu-panel">
+            <div class="menu-hero menu-hero-blasters" aria-hidden="true">
+              <div class="menu-hero-glow"></div>
+              <div class="menu-hero-title">BLASTERS</div>
+              <div class="menu-hero-sub">co-op · 2 players · hands as guns</div>
+            </div>
+            <h2 class="menu-heading">Кооп · стреляйте по целям</h2>
+            <p class="menu-hint">
+              Встаньте перед камерой вдвоём. Поднятая ладонь автоматически стреляет в направлении пальцев.
+              Сбивайте цели — счёт общий.
+            </p>
+            <div class="menu-cta">
+              <button type="button" id="btn-start" class="btn-start">Играть</button>
+            </div>
+            <div class="menu-options" role="group" aria-label="Опции">
+              <div class="menu-options-title">Опции</div>
+              <label class="menu-option-toggle">
+                <input type="checkbox" id="opt-sound-off" class="menu-option-input" aria-label="Отключить звуки в игре" />
+                <span class="menu-option-left">
+                  <span class="menu-option-emoji" aria-hidden="true">
+                    <span class="menu-option-emoji-on">🔊</span>
+                    <span class="menu-option-emoji-off">🔇</span>
+                  </span>
+                  <span class="menu-option-text">
+                    <span class="menu-option-title">Звуки в игре</span>
+                  </span>
+                </span>
+                <span class="menu-option-switch" aria-hidden="true"><span class="menu-option-knob"></span></span>
+              </label>
+              <label class="menu-option-toggle">
+                <input type="checkbox" id="opt-music-off" class="menu-option-input" aria-label="Отключить музыку" />
+                <span class="menu-option-left">
+                  <span class="menu-option-emoji" aria-hidden="true">
+                    <span class="menu-option-emoji-on">🎵</span>
+                    <span class="menu-option-emoji-off">🔇</span>
+                  </span>
+                  <span class="menu-option-text">
+                    <span class="menu-option-title">Музыка</span>
+                    <span class="menu-option-desc">Меню и игра</span>
+                  </span>
+                </span>
+                <span class="menu-option-switch" aria-hidden="true"><span class="menu-option-knob"></span></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div id="loading" class="visible">
+          <div id="loading-logo" aria-hidden="true">⌖</div>
+          <div id="loading-text">Loading Models...</div>
+          <div id="progress-container">
+            <div id="progress-bar"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

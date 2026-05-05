@@ -1,0 +1,546 @@
+:root {
+  --neon-cyan: #00f3ff;
+  --neon-magenta: #ff00ea;
+  --bg-dark: #0f0f13;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body, html {
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  background-color: var(--bg-dark);
+  font-family: 'Outfit', sans-serif;
+  color: white;
+  /* fallback until JS sets exact layout size (mobile URL bar / dvh mismatch) */
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+#game-container {
+  position: relative;
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+video {
+  /* Do not use display: none; Safari will suspend playback of the webcam stream! */
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
+
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  /* width/height заданы в JS = размеру буфера, без растягивания по 100vh */
+  /* Mirror the canvas so it feels like a mirror */
+  transform: scaleX(-1);
+}
+
+#ui-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2rem;
+}
+
+#hud-game {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  pointer-events: none;
+}
+
+#hud-game.is-hidden {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#score-display {
+  font-size: 3rem;
+  font-weight: 900;
+  text-shadow: 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-cyan);
+  pointer-events: none;
+}
+
+.hud-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  pointer-events: auto;
+}
+
+#level-display {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 0 8px var(--neon-magenta);
+}
+
+.btn-menu {
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 0.5rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(15, 15, 19, 0.75);
+  color: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.btn-menu:hover {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 14px rgba(0, 243, 255, 0.35);
+}
+
+/** Кнопка «Меню» во время игры — внизу по центру, вне поля резки */
+.btn-back-menu {
+  position: absolute;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  pointer-events: auto;
+  padding: 0.55rem 1.4rem;
+  background: rgba(15, 15, 19, 0.82);
+  box-shadow: 0 0 14px rgba(0, 0, 0, 0.45);
+}
+
+/** Floating «На весь экран» в верхнем правом углу меню */
+.btn-fullscreen {
+  position: absolute;
+  top: max(0.75rem, env(safe-area-inset-top));
+  right: max(0.75rem, env(safe-area-inset-right));
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 243, 255, 0.35);
+  background: rgba(8, 12, 22, 0.85);
+  color: #e6faff;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 6;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.btn-fullscreen[hidden] {
+  display: none;
+}
+
+.btn-fullscreen:hover {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 16px rgba(0, 243, 255, 0.35);
+}
+
+.btn-fullscreen-on,
+.btn-fullscreen-off {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.btn-fullscreen.is-active .btn-fullscreen-on { display: none; }
+.btn-fullscreen:not(.is-active) .btn-fullscreen-off { display: none; }
+
+/** В «нативном фуллскрине» на узком экране оставляем только иконку, чтобы не мешала */
+@media (max-width: 480px) {
+  .btn-fullscreen-label { display: none; }
+}
+
+.menu-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 5;
+  pointer-events: auto;
+  /* Полностью без backdrop-filter — на Windows+Chrome размытие часто даёт рывки при hover соседей */
+  background: rgba(8, 8, 12, 0.94);
+}
+
+.menu-overlay.is-hidden {
+  display: none;
+}
+
+.menu-panel {
+  width: 100%;
+  max-width: min(560px, 94vw);
+  padding: 1.75rem 2rem;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(18, 18, 24, 0.92);
+  box-shadow: 0 0 40px rgba(0, 243, 255, 0.15), 0 0 60px rgba(255, 0, 234, 0.08);
+  text-align: center;
+  transform: translateZ(0);
+}
+
+.menu-hero-blasters {
+  position: relative;
+  margin: 0 auto 1.35rem;
+  padding: 1.5rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(0, 243, 255, 0.35);
+  background: radial-gradient(ellipse at 50% 20%, rgba(0, 243, 255, 0.18), transparent 55%),
+    linear-gradient(165deg, rgba(18, 12, 32, 0.95), rgba(8, 8, 16, 0.92));
+  box-shadow: 0 0 28px rgba(0, 243, 255, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.menu-hero-glow {
+  position: absolute;
+  inset: -40%;
+  background: conic-gradient(from 120deg, rgba(0, 243, 255, 0.15), transparent 35%, rgba(255, 0, 234, 0.12), transparent 70%);
+  animation: hero-spin 10s linear infinite;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+@keyframes hero-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.menu-hero-title {
+  position: relative;
+  font-size: clamp(2rem, 8vw, 3rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  background: linear-gradient(125deg, #00f3ff 0%, #ff00ea 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 14px rgba(0, 243, 255, 0.35));
+}
+
+.menu-hero-sub {
+  position: relative;
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.menu-cta {
+  margin-bottom: 1.35rem;
+}
+
+.btn-start {
+  font-family: inherit;
+  font-size: 1.15rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  padding: 0.95rem 2.75rem;
+  border-radius: 999px;
+  border: 2px solid rgba(0, 243, 255, 0.65);
+  color: #0a0a14;
+  cursor: pointer;
+  background: linear-gradient(125deg, #00f3ff 0%, #a855ff 55%, #ff00ea 100%);
+  box-shadow: 0 0 22px rgba(0, 243, 255, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
+}
+
+.btn-start:hover {
+  transform: translateY(-2px) scale(1.02);
+  filter: brightness(1.06);
+  box-shadow: 0 0 32px rgba(255, 0, 234, 0.45), 0 12px 28px rgba(0, 0, 0, 0.4);
+}
+
+.btn-start:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.menu-heading {
+  font-size: 1.25rem;
+  font-weight: 800;
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px rgba(0, 243, 255, 0.4);
+}
+
+.menu-hint {
+  font-size: 0.88rem;
+  opacity: 0.65;
+  margin-bottom: 1.25rem;
+  line-height: 1.4;
+}
+
+.menu-options {
+  text-align: left;
+  margin-top: 1.25rem;
+  margin-bottom: 0;
+  padding: 1rem 1.1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 243, 255, 0.28);
+  background: linear-gradient(165deg, rgba(12, 18, 32, 0.92) 0%, rgba(8, 8, 14, 0.88) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 24px rgba(0, 243, 255, 0.08);
+}
+
+.menu-options-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(0, 243, 255, 0.92);
+  margin-bottom: 0.75rem;
+  text-shadow: 0 0 12px rgba(0, 243, 255, 0.35);
+}
+
+.menu-option-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 0.65rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.22);
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.menu-option-toggle:last-of-type {
+  margin-bottom: 0;
+}
+
+.menu-option-toggle:hover {
+  border-color: rgba(255, 0, 234, 0.28);
+  background: rgba(255, 0, 234, 0.06);
+  box-shadow: 0 0 14px rgba(255, 0, 234, 0.12);
+}
+
+.menu-option-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.menu-option-left {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.menu-option-emoji {
+  position: relative;
+  width: 2.6rem;
+  height: 2.6rem;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 1.42rem;
+  line-height: 1;
+}
+
+.menu-option-emoji-on,
+.menu-option-emoji-off {
+  position: absolute;
+  transition: opacity 0.2s ease, transform 0.2s ease, filter 0.2s ease, visibility 0.2s linear;
+}
+
+/* Неактивный эмодзи полностью скрыт — иначе «🔇» просвечивает под 🔊 / 🎵 */
+/* Галочка = «выключено» — звук/музыка off */
+.menu-option-toggle:has(.menu-option-input:checked) .menu-option-emoji-on {
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.75);
+  filter: none;
+  z-index: 0;
+}
+
+.menu-option-toggle:has(.menu-option-input:checked) .menu-option-emoji-off {
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1.06);
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.45));
+  z-index: 1;
+}
+
+.menu-option-toggle:not(:has(.menu-option-input:checked)) .menu-option-emoji-on {
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1.06);
+  filter: drop-shadow(0 0 12px rgba(0, 243, 255, 0.65));
+  z-index: 1;
+}
+
+.menu-option-toggle:not(:has(.menu-option-input:checked)) .menu-option-emoji-off {
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.75);
+  filter: none;
+  z-index: 0;
+}
+
+.menu-option-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.menu-option-title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.01em;
+}
+
+.menu-option-desc {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.52);
+  line-height: 1.25;
+}
+
+.menu-option-toggle:not(:has(.menu-option-input:checked)) .menu-option-title {
+  text-shadow: 0 0 12px rgba(0, 243, 255, 0.25);
+}
+
+.menu-option-switch {
+  position: relative;
+  width: 52px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  background: rgba(55, 55, 72, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: background 0.24s ease, border-color 0.24s ease, box-shadow 0.24s ease;
+}
+
+.menu-option-toggle:not(:has(.menu-option-input:checked)) .menu-option-switch {
+  background: linear-gradient(125deg, rgba(0, 243, 255, 0.42) 0%, rgba(255, 0, 234, 0.22) 100%);
+  border-color: rgba(0, 243, 255, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 18px rgba(0, 243, 255, 0.28);
+}
+
+.menu-option-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(165deg, #ffffff 0%, #c8d8f0 55%, #9ecfff 100%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.35) inset;
+  transition: transform 0.24s cubic-bezier(0.34, 1.35, 0.64, 1);
+}
+
+/* Включено (звук есть): бегунок справа */
+.menu-option-toggle:not(:has(.menu-option-input:checked)) .menu-option-knob {
+  transform: translateX(24px);
+}
+
+.menu-option-toggle:focus-within {
+  outline: 2px solid rgba(0, 243, 255, 0.55);
+  outline-offset: 2px;
+}
+
+#loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 10;
+  transform: translate(-50%, -50%);
+  background: rgba(15, 15, 19, 0.94);
+  backdrop-filter: blur(6px);
+  padding: 2.5rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 1.5rem;
+  font-weight: 700;
+  box-shadow: 0 0 30px rgba(0, 243, 255, 0.3);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  width: 90%;
+  max-width: min(560px, 92vw);
+}
+
+#loading.visible {
+  opacity: 1;
+}
+
+#loading-logo {
+  font-size: clamp(3rem, 14vw, 5rem);
+  line-height: 1;
+  filter: drop-shadow(0 0 18px rgba(0, 243, 255, 0.55));
+  user-select: none;
+}
+
+#progress-container {
+  width: 100%;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+#progress-bar {
+  width: 0%;
+  height: 100%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 10px var(--neon-cyan);
+  transition: width 0.3s ease;
+}
+
+/* Subtle pulse animation for loading */
+@keyframes pulse {
+  0% { text-shadow: 0 0 5px var(--neon-magenta); }
+  50% { text-shadow: 0 0 20px var(--neon-magenta); }
+  100% { text-shadow: 0 0 5px var(--neon-magenta); }
+}
+
+#loading-text {
+  animation: pulse 1.5s infinite;
+}
