@@ -4,12 +4,21 @@ const MEDIAPIPE_TASKS_VISION_WASM_VER = '0.10.34';
 
 const STORAGE_SFX_OFF = 'blasters-sfx-off';
 const STORAGE_MUSIC_OFF = 'blasters-music-off';
+const STORAGE_PLAYER_COUNT = 'blasters-player-count';
 
 const DEBUG_FRAME_PERF =
     typeof location !== 'undefined' && new URLSearchParams(location.search).get('perf') === '1';
 
 let soundEffectsEnabled = true;
 let musicEnabled = true;
+
+function loadPlayerCountPreference() {
+    const raw = localStorage.getItem(STORAGE_PLAYER_COUNT);
+    return raw === '1' ? 1 : 2;
+}
+
+/** 1 или 2 — совпадает с numPoses у PoseLandmarker */
+let playerModeCount = loadPlayerCountPreference();
 
 function loadPersistedSettings() {
     soundEffectsEnabled = localStorage.getItem(STORAGE_SFX_OFF) !== '1';
@@ -324,6 +333,8 @@ const btnStart = document.getElementById('btn-start');
 const playersDisplay = document.getElementById('players-display');
 
 let poseLandmarker;
+let visionTasksResolver = null;
+let mediapipePoseDelegate = 'CPU';
 let lastVideoTime = -1;
 let score = 0;
 let targets = [];
@@ -485,7 +496,76 @@ if (optMusicOff) {
         }
     });
 }
+
+const optPlayers1 = document.getElementById('opt-players-1');
+const optPlayers2 = document.getElementById('opt-players-2');
+
+function syncPlayerCountRadios() {
+    if (!optPlayers1 || !optPlayers2) return;
+    optPlayers1.checked = playerModeCount === 1;
+    optPlayers2.checked = playerModeCount === 2;
+}
+
+async function createPoseLandmarkerInstance() {
+    const vision = visionTasksResolver;
+    if (!vision) {
+        console.warn('[Blasters] createPoseLandmarkerInstance: vision resolver not ready');
+        return;
+    }
+    const np = playerModeCount === 1 ? 1 : 2;
+    const poseOpts = (delegate) => ({
+        baseOptions: {
+            modelAssetPath:
+                'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
+            delegate
+        },
+        runningMode: 'VIDEO',
+        numPoses: np
+    });
+
+    try {
+        poseLandmarker = await PoseLandmarker.createFromOptions(vision, poseOpts('GPU'));
+        mediapipePoseDelegate = 'GPU';
+    } catch (e) {
+        console.warn('PoseLandmarker GPU failed, CPU:', e);
+        poseLandmarker = await PoseLandmarker.createFromOptions(vision, poseOpts('CPU'));
+        mediapipePoseDelegate = 'CPU';
+    }
+
+    console.info(`[Blasters] pose delegate: ${mediapipePoseDelegate}, numPoses=${np}`);
+}
+
+async function recreatePoseLandmarker() {
+    if (!visionTasksResolver) return;
+    if (poseLandmarker) {
+        try {
+            poseLandmarker.close();
+        } catch (_) {}
+        poseLandmarker = null;
+    }
+    lastVideoTime = -1;
+    currentPoseResults = null;
+    await createPoseLandmarkerInstance();
+}
+
+function applyPlayerModeFromUi(userInitiated) {
+    const next = optPlayers1?.checked ? 1 : 2;
+    if (next === playerModeCount && userInitiated) return;
+    playerModeCount = next;
+    localStorage.setItem(STORAGE_PLAYER_COUNT, String(playerModeCount));
+    syncPlayerCountRadios();
+    if (userInitiated) void recreatePoseLandmarker();
+}
+
+optPlayers1?.addEventListener('change', () => {
+    if (optPlayers1.checked) applyPlayerModeFromUi(true);
+});
+optPlayers2?.addEventListener('change', () => {
+    if (optPlayers2.checked) applyPlayerModeFromUi(true);
+});
+
 loadPersistedSettings();
+syncPlayerCountRadios();
 
 const POSE_CONNECTIONS = PoseLandmarker.POSE_CONNECTIONS;
 
@@ -637,8 +717,6 @@ async function setupWebcam() {
     throw lastErr ?? new Error('Could not open webcam');
 }
 
-let mediapipePoseDelegate = 'CPU';
-
 async function initializeModels() {
     let vision;
     const wasmLocal = getMediapipeWasmUrl();
@@ -654,26 +732,8 @@ async function initializeModels() {
     }
     console.info(`[Blasters] MediaPipe WASM: ${visionWasmSource}`);
 
-    const poseOpts = (delegate) => ({
-        baseOptions: {
-            modelAssetPath:
-                'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
-            delegate
-        },
-        runningMode: 'VIDEO',
-        numPoses: 2
-    });
-
-    try {
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, poseOpts('GPU'));
-        mediapipePoseDelegate = 'GPU';
-    } catch (e) {
-        console.warn('PoseLandmarker GPU failed, CPU:', e);
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, poseOpts('CPU'));
-        mediapipePoseDelegate = 'CPU';
-    }
-
-    console.info(`[Blasters] pose delegate: ${mediapipePoseDelegate}`);
+    visionTasksResolver = vision;
+    await createPoseLandmarkerInstance();
 
     preloadGameAudio();
     loadingElement.classList.remove('visible');
@@ -1183,12 +1243,17 @@ function gameLoop(nowTime) {
 
     if (playersDisplay) {
         const n = orderedPersons.length;
-        playersDisplay.textContent =
-            n >= 2
-                ? 'Игроков: 2 · общий счёт'
-                : n === 1
-                  ? 'Игроков: 1 · позовите второго'
-                  : 'Игроков: 0 · встаньте в кадр';
+        if (playerModeCount === 1) {
+            playersDisplay.textContent =
+                n >= 1 ? 'Режим: 1 игрок' : 'Режим: 1 игрок · встаньте в кадр';
+        } else {
+            playersDisplay.textContent =
+                n >= 2
+                    ? 'Режим: 2 игрока · общий счёт'
+                    : n === 1
+                      ? 'Режим: 2 игрока · позовите второго'
+                      : 'Режим: 2 игрока · встаньте в кадр';
+        }
     }
 
     const keyedHands = buildKeyedHandsFromPose(currentPoseResults);
