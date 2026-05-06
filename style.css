@@ -85,6 +85,24 @@ canvas {
   pointer-events: none;
 }
 
+.game-over-overlay {
+  order: -1;
+  width: 100%;
+  text-align: center;
+  font-weight: 900;
+  font-size: clamp(1.75rem, 8vw, 4rem);
+  letter-spacing: 0.12em;
+  color: #ff5252;
+  text-shadow:
+    0 0 12px rgba(255, 82, 82, 0.95),
+    0 0 28px rgba(0, 243, 255, 0.45);
+  pointer-events: none;
+}
+
+.game-over-overlay.is-hidden {
+  display: none;
+}
+
 .hud-row {
   display: flex;
   align-items: center;
