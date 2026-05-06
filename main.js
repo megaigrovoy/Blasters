@@ -453,6 +453,7 @@ mainMenu.addEventListener(
         if (isPlaying) return;
         tryUnlockAudioOnUserGesture();
         if (e.target?.closest?.('#btn-start')) return;
+        if (e.target?.closest?.('.menu-player-row')) return;
         if (e.target?.closest?.('.menu-options')) return;
         playMenuMusic();
     },

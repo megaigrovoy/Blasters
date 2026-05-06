@@ -179,11 +179,16 @@ canvas {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 1.5rem;
+  padding: max(0.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(0.75rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
   z-index: 5;
   pointer-events: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   /* Полностью без backdrop-filter — на Windows+Chrome размытие часто даёт рывки при hover соседей */
   background: rgba(8, 8, 12, 0.94);
 }
@@ -202,6 +207,12 @@ canvas {
   box-shadow: 0 0 40px rgba(0, 243, 255, 0.15), 0 0 60px rgba(255, 0, 234, 0.08);
   text-align: center;
   transform: translateZ(0);
+  flex-shrink: 0;
+  margin: auto 0;
+  max-height: min(92vh, 92dvh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .menu-hero-blasters {
@@ -327,6 +338,15 @@ canvas {
   background: rgba(0, 0, 0, 0.2);
 }
 
+.menu-player-row-prominent {
+  margin-top: 0.25rem;
+  margin-bottom: 1.1rem;
+  text-align: left;
+  border-width: 2px;
+  border-color: rgba(0, 243, 255, 0.45);
+  box-shadow: 0 0 18px rgba(0, 243, 255, 0.15);
+}
+
 .menu-player-label {
   font-size: 0.82rem;
   font-weight: 800;
@@ -357,6 +377,11 @@ canvas {
   pointer-events: none;
 }
 
+.menu-player-pill input:focus-visible + span {
+  outline: 2px solid rgba(0, 243, 255, 0.75);
+  outline-offset: 3px;
+}
+
 .menu-player-pill span {
   display: block;
   text-align: center;
@@ -374,12 +399,7 @@ canvas {
   border-color: rgba(0, 243, 255, 0.35);
 }
 
-.menu-player-pill:focus-within span {
-  outline: 2px solid rgba(0, 243, 255, 0.55);
-  outline-offset: 2px;
-}
-
-.menu-player-pill:has(input:checked) span {
+.menu-player-pill input:checked + span {
   border-color: rgba(0, 243, 255, 0.65);
   background: linear-gradient(125deg, rgba(0, 243, 255, 0.28) 0%, rgba(255, 0, 234, 0.14) 100%);
   color: #fff;
