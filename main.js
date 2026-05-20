@@ -1251,8 +1251,51 @@ const POSE_BODY_HANDS = [
 
 const POSE_HAND_MIN_VISIBILITY = 0.55;
 
+/** Доли длины запястье→кончик для MCP/PIP/DIP (угловато, но ближе к реальной кисти и к линиям трекера). */
+const SYNTH_FINGER_FRACS = { mcp: 0.14, pip: 0.42, dip: 0.72 };
+const SYNTH_THUMB_FRACS = { mcp: 0.18, pip: 0.46, dip: 0.74 };
+
 function midpoint(a, b) {
-    return { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 };
+    return { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5, z: ((a.z ?? 0) + (b.z ?? 0)) * 0.5 };
+}
+
+function synthVecSub(a, b) {
+    return { x: a.x - b.x, y: a.y - b.y, z: (a.z ?? 0) - (b.z ?? 0) };
+}
+
+function synthVecLen(v) {
+    return Math.hypot(v.x, v.y, v.z ?? 0);
+}
+
+function synthVecNorm(v) {
+    const L = synthVecLen(v) || 1e-8;
+    return { x: v.x / L, y: v.y / L, z: (v.z ?? 0) / L };
+}
+
+function synthVis(a, b) {
+    return Math.min(a.visibility ?? 1, b.visibility ?? 1);
+}
+
+function synthAlong(wrist, dirN, dist, vis) {
+    if (dist <= 0) return { ...wrist };
+    return {
+        x: wrist.x + dirN.x * dist,
+        y: wrist.y + dirN.y * dist,
+        z: (wrist.z ?? 0) + (dirN.z ?? 0) * dist,
+        visibility: vis
+    };
+}
+
+/** Цепочка 5→6→7→8 (и аналоги) вдоль направления запястье→кончик трекера. */
+function synthFillFingerChain(lm, wrist, tip, iMcp, iPip, iDip, iTip, fracs) {
+    const dN = synthVecNorm(synthVecSub(tip, wrist));
+    const L = synthVecLen(synthVecSub(tip, wrist));
+    const vis = synthVis(wrist, tip);
+    const { mcp, pip, dip } = fracs;
+    lm[iMcp] = synthAlong(wrist, dN, L * mcp, vis);
+    lm[iPip] = synthAlong(wrist, dN, L * pip, vis);
+    lm[iDip] = synthAlong(wrist, dN, L * dip, vis);
+    lm[iTip] = { x: tip.x, y: tip.y, z: tip.z, visibility: tip.visibility ?? vis };
 }
 
 function buildSyntheticHandFromPose(poseLandmarks, def) {
@@ -1264,37 +1307,32 @@ function buildSyntheticHandFromPose(poseLandmarks, def) {
     const vis = wrist.visibility ?? 1;
     if (vis < POSE_HAND_MIN_VISIBILITY) return null;
 
-    const indexPip = midpoint(wrist, indexT);
-    const pinkyDip = midpoint(wrist, pinkyT);
-    const middleT = midpoint(indexT, pinkyT);
-    const middlePip = midpoint(wrist, middleT);
-    const ringT = midpoint(middleT, pinkyT);
-    const ringPip = midpoint(wrist, ringT);
     const thumb = thumbT || midpoint(wrist, indexT);
 
+    const lvI = synthVecSub(indexT, wrist);
+    const lvP = synthVecSub(pinkyT, wrist);
+    const lenI = synthVecLen(lvI);
+    const lenP = synthVecLen(lvP);
+    const uI = lenI > 1e-8 ? synthVecNorm(lvI) : { x: 1, y: 0, z: 0 };
+    const uP = lenP > 1e-8 ? synthVecNorm(lvP) : uI;
+    const bis = synthVecNorm({ x: uI.x + uP.x, y: uI.y + uP.y, z: (uI.z ?? 0) + (uP.z ?? 0) });
+    const Lmid = Math.max(lenI, lenP) * 1.07;
+    const middleTip = synthAlong(wrist, bis, Lmid, synthVis(wrist, synthVis(indexT, pinkyT)));
+
+    const midIP = midpoint(indexT, pinkyT);
+    const towardRing = synthVecNorm(synthVecSub(midIP, wrist));
+    const Lring = synthVecLen(synthVecSub(midIP, wrist)) * 0.96;
+    const ringTip = synthAlong(wrist, towardRing, Math.max(Lring, Math.min(lenI, lenP) * 0.45), synthVis(wrist, pinkyT));
+
     const lm = new Array(21);
-    for (let i = 0; i < 21; i++) lm[i] = wrist;
     lm[0] = wrist;
-    lm[1] = midpoint(wrist, thumb);
-    lm[2] = midpoint(wrist, thumb);
-    lm[3] = midpoint(wrist, thumb);
-    lm[4] = thumb;
-    lm[5] = midpoint(wrist, indexT);
-    lm[6] = midpoint(wrist, indexT);
-    lm[7] = indexPip;
-    lm[8] = indexT;
-    lm[9] = middlePip;
-    lm[10] = middlePip;
-    lm[11] = middlePip;
-    lm[12] = middleT;
-    lm[13] = ringPip;
-    lm[14] = ringPip;
-    lm[15] = ringPip;
-    lm[16] = ringT;
-    lm[17] = pinkyDip;
-    lm[18] = pinkyDip;
-    lm[19] = pinkyDip;
-    lm[20] = pinkyT;
+
+    synthFillFingerChain(lm, wrist, thumb, 1, 2, 3, 4, SYNTH_THUMB_FRACS);
+    synthFillFingerChain(lm, wrist, indexT, 5, 6, 7, 8, SYNTH_FINGER_FRACS);
+    synthFillFingerChain(lm, wrist, middleTip, 9, 10, 11, 12, SYNTH_FINGER_FRACS);
+    synthFillFingerChain(lm, wrist, ringTip, 13, 14, 15, 16, SYNTH_FINGER_FRACS);
+    synthFillFingerChain(lm, wrist, pinkyT, 17, 18, 19, 20, SYNTH_FINGER_FRACS);
+
     return lm;
 }
 
@@ -1645,7 +1683,7 @@ const GAUNTLET_URLS_BY_KEY = {
 const HELMET_HITS_TO_BREAK = 3;
 const VEST_HITS_TO_BREAK = 4;
 const GLOVE_HITS_TO_BREAK = 4;
-const HELMET_HIT_R_MUL = 0.5;
+const HELMET_HIT_R_MUL = 0.42;
 const VEST_HIT_R_MUL = 0.52;
 const GLOVE_HIT_R_MUL = 0.2;
 
@@ -1855,23 +1893,24 @@ async function preloadCharacterSprites() {
 
 const GAUNTLET_PIVOT_X_FRAC = 0.5;
 const GAUNTLET_PIVOT_Y_FRAC = 0.72;
-const GAUNTLET_SCALE_PER_REACH = 0.0035;
+const GAUNTLET_SCALE_PER_REACH = 0.00295;
 const GAUNTLET_SCALE_MIN = 0.12;
-const GAUNTLET_SCALE_MAX = 2.45;
+const GAUNTLET_SCALE_MAX = 1.92;
 /** Эталонная ширина плеч в пикселях — база для дистанции до камеры. */
 const GAUNTLET_SHOULDER_REF_PX = 132;
-const GAUNTLET_DISTANCE_SCALE_MAX = 2.5;
-/** >1: на дальней дистанции (узкие плечи) кулаки ужимаются сильнее, чем шлем/жилет. */
-const GAUNTLET_DISTANCE_EXP = 1.38;
+/** У веб-камеры плечи часто «широкие в px» — низкий потолок не раздувает перчатки на близком плане. */
+const GAUNTLET_DISTANCE_SCALE_MAX = 1.72;
+/** Шлем/жилет почти линейны от лица/плеч; здесь степень усиливала близкий план слишком сильно. */
+const GAUNTLET_DISTANCE_EXP = 1.12;
 /** Мин. доля эталона при расчёте дистанции (ниже — ещё мельче на дальнике). */
 const GAUNTLET_BODY_RATIO_FLOOR = 0.26;
 /**
  * Жёсткий потолок scale от ширины плеч (как у шлема/жилета ~ линейно от размера тела).
  * Подобрано так, чтобы близ/средне оставалось как сейчас, далеко — не раздуваться.
  */
-const GAUNTLET_SCALE_CAP_PER_SHOULDER_PX = 0.0155;
+const GAUNTLET_SCALE_CAP_PER_SHOULDER_PX = 0.0128;
 /** Не даём «reach» из позы раздувать кулак сильнее пропорций тела. */
-const GAUNTLET_MAX_REACH_OVER_SHOULDER = 0.48;
+const GAUNTLET_MAX_REACH_OVER_SHOULDER = 0.44;
 /** Угол направления «вперёд» кисти в PNG до поворота: вверх по картинке = -π/2, вниз = +π/2. */
 const GAUNTLET_ART_FORWARD_UP = -Math.PI / 2;
 const GAUNTLET_ART_FORWARD_DOWN = Math.PI / 2;
@@ -1884,6 +1923,11 @@ const GAUNTLET_OVERLAY_SMOOTH_ALPHA = 0.15;
 const GAUNTLET_SHOULDER_SMOOTH_ALPHA = 0.18;
 /** Гистерезис смены спрайта «кулак вверх/вниз», в долях minSide (уменьшает мигание). */
 const GAUNTLET_AIM_HYST_MUL = 0.016;
+/** Сдвиг якоря от запястья к кулаку вдоль wrist→index (доля reach), чтобы PNG накрывал кисть. */
+const GAUNTLET_ANCHOR_ALONG_AIM_MUL_UP = 0.34;
+const GAUNTLET_ANCHOR_ALONG_AIM_MUL_DOWN = 0.52;
+/** Чуть крупнее спрайт «кулак вниз» — кисть видна ниже запястья в кадре. */
+const GAUNTLET_SCALE_MUL_AIMDOWN = 1.04;
 
 const gauntletOverlayByHandKey = new Map();
 const gauntletShoulderByPoseKey = new Map();
@@ -1915,7 +1959,7 @@ const HELMET_PIVOT_X_FRAC = 0.5;
 const HELMET_PIVOT_Y_FRAC = 0.52;
 /** Меньше — шлем ниже к лицу (от позиции между ушами вниз). */
 const HELMET_CENTER_Y_OFF_FRAC = 0.08;
-const HELMET_SCALE_MUL = 3.18;
+const HELMET_SCALE_MUL = 2.68;
 const HELMET_SCALE_MIN = 0.22;
 const HELMET_SCALE_MAX = 4.4;
 /** Сглаживание положения ушей/носа на экране (меньше — плавнее наклон шлема). */
@@ -2141,6 +2185,7 @@ function drawGauntletSprite(ctx, wristLm, indexLm, getScreenPoint, poseKey, hand
     const distanceMul = Math.pow(bodyRatioCap, GAUNTLET_DISTANCE_EXP);
     const reachEff = Math.min(reach, sw * GAUNTLET_MAX_REACH_OVER_SHOULDER);
     let scale = reachEff * GAUNTLET_SCALE_PER_REACH * distanceMul;
+    if (!aimUp) scale *= GAUNTLET_SCALE_MUL_AIMDOWN;
     scale = Math.min(scale, sw * GAUNTLET_SCALE_CAP_PER_SHOULDER_PX);
     scale = Math.max(GAUNTLET_SCALE_MIN, Math.min(GAUNTLET_SCALE_MAX, scale));
 
@@ -2148,8 +2193,12 @@ function drawGauntletSprite(ctx, wristLm, indexLm, getScreenPoint, poseKey, hand
     const angImgForward = aimUp ? GAUNTLET_ART_FORWARD_UP : GAUNTLET_ART_FORWARD_DOWN;
     const rotation = angAim - angImgForward + GAUNTLET_ANGLE_FUDGE;
 
+    const alongMul = aimUp ? GAUNTLET_ANCHOR_ALONG_AIM_MUL_UP : GAUNTLET_ANCHOR_ALONG_AIM_MUL_DOWN;
+    const ax = st.wx + (st.ix - st.wx) * alongMul;
+    const ay = st.wy + (st.iy - st.wy) * alongMul;
+
     ctx.save();
-    ctx.translate(st.wx, st.wy);
+    ctx.translate(ax, ay);
     ctx.rotate(rotation);
     ctx.scale(scale, scale);
     ctx.translate(-pivotX, -pivotY);
