@@ -4,13 +4,19 @@ const MEDIAPIPE_TASKS_VISION_WASM_VER = '0.10.34';
 
 const STORAGE_SFX_OFF = 'blasters-sfx-off';
 const STORAGE_MUSIC_OFF = 'blasters-music-off';
+const STORAGE_SFX_VOL = 'blasters-sfx-vol';
+const STORAGE_MUSIC_VOL = 'blasters-music-vol';
+const STORAGE_LANG = 'blasters-lang';
 const STORAGE_PLAYER_COUNT = 'blasters-player-count';
 
 const DEBUG_FRAME_PERF =
     typeof location !== 'undefined' && new URLSearchParams(location.search).get('perf') === '1';
 
-let soundEffectsEnabled = true;
-let musicEnabled = true;
+/** 0…1 — громкость эффектов и музыки (ползунки) */
+let sfxVolume01 = 1;
+let musicVolume01 = 1;
+/** 'ru' | 'en' */
+let uiLang = 'ru';
 
 function loadPlayerCountPreference() {
     const raw = localStorage.getItem(STORAGE_PLAYER_COUNT);
@@ -20,13 +26,143 @@ function loadPlayerCountPreference() {
 /** 1 или 2 — совпадает с numPoses у PoseLandmarker */
 let playerModeCount = loadPlayerCountPreference();
 
+const I18N_STRINGS = {
+    ru: {
+        heroSub: 'pose tracking · 1–2 игрока · руки = оружие',
+        menuHeading: 'Стреляйте по целям с камеры',
+        menuHint:
+            'Поднятая ладонь автоматически стреляет в направлении пальцев. Режим «Два» ищет две позы (тяжелее для CPU/GPU); «Один» — одну.',
+        playerLabel: 'Игроков на камере',
+        cornerLangTitle: 'Язык',
+        cornerPlayersTitle: 'Игроки',
+        playerOne: 'Один',
+        playerTwo: 'Два',
+        playerHint:
+            'Переключатель сохраняется. После смены режима модель поз перезапускается автоматически.',
+        btnStart: 'Играть',
+        optionsTitle: 'Звук и музыка',
+        volSfx: 'Громкость эффектов',
+        volMusic: 'Громкость музыки',
+        btnBackMenu: 'Меню',
+        fullscreen: 'На весь экран',
+        fullscreenExit: 'Свернуть',
+        gameOver: 'ИГРА ОКОНЧЕНА',
+        loadingModels: 'Загрузка моделей…',
+        players1ok: 'Режим: 1 игрок',
+        players1wait: 'Режим: 1 игрок · встаньте в кадр',
+        players2ok: 'Режим: 2 игрока · общий счёт',
+        players2wait1: 'Режим: 2 игрока · позовите второго',
+        players2wait0: 'Режим: 2 игрока · встаньте в кадр',
+        errTitle: 'Не удалось запустить игру.',
+        errHintDefault:
+            'Откройте консоль браузера (F12 → Console) и при необходимости пришлите текст ошибки.',
+        errHintPermission:
+            'Браузер заблокировал камеру для этого сайта. Нажмите на значок замка слева от адреса → разрешите камеру, обновите страницу.',
+        errHintNotFound: 'Камера не найдена. Проверьте, что она подключена и не занята другим приложением.',
+        errHintAbort:
+            'Камера не успела запуститься. Отключите режим эмуляции устройства в DevTools (или выберите реальное устройство с камерой), закройте другие программы, использующие камеру, и обновите страницу.'
+    },
+    en: {
+        heroSub: 'pose tracking · 1–2 players · hands = weapons',
+        menuHeading: 'Shoot targets with your camera',
+        menuHint:
+            'A raised palm shoots along your fingers. “Two” tracks two poses (heavier on CPU/GPU); “One” tracks one.',
+        playerLabel: 'Players in frame',
+        cornerLangTitle: 'Language',
+        cornerPlayersTitle: 'Players',
+        playerOne: 'One',
+        playerTwo: 'Two',
+        playerHint: 'This choice is saved. Changing it restarts the pose model.',
+        btnStart: 'Play',
+        optionsTitle: 'Sound & music',
+        volSfx: 'Sound effects volume',
+        volMusic: 'Music volume',
+        btnBackMenu: 'Menu',
+        fullscreen: 'Fullscreen',
+        fullscreenExit: 'Exit fullscreen',
+        gameOver: 'GAME OVER',
+        loadingModels: 'Loading models…',
+        players1ok: 'Mode: 1 player',
+        players1wait: 'Mode: 1 player · step into frame',
+        players2ok: 'Mode: 2 players · shared score',
+        players2wait1: 'Mode: 2 players · bring in second player',
+        players2wait0: 'Mode: 2 players · step into frame',
+        errTitle: 'Could not start the game.',
+        errHintDefault:
+            'Open the browser console (F12 → Console) and share the error text if you need help.',
+        errHintPermission:
+            'The browser blocked camera access for this site. Use the lock icon in the address bar → allow camera, then reload.',
+        errHintNotFound: 'No camera found. Check it is plugged in and not in use by another app.',
+        errHintAbort:
+            'The camera did not start in time. Turn off device emulation in DevTools (or pick a real device with a camera), close other apps using the camera, and reload.'
+    }
+};
+
+function t(key) {
+    const pack = I18N_STRINGS[uiLang] || I18N_STRINGS.ru;
+    const v = pack[key];
+    return v != null ? v : I18N_STRINGS.en[key] ?? key;
+}
+
+function formatScore(n) {
+    return uiLang === 'ru' ? `Счёт: ${n}` : `Score: ${n}`;
+}
+
+function loadLangPreference() {
+    const raw = localStorage.getItem(STORAGE_LANG);
+    if (raw === 'en' || raw === 'ru') return raw;
+    if (typeof navigator !== 'undefined' && navigator.language && /^en/i.test(navigator.language)) return 'en';
+    return 'ru';
+}
+
+function applyI18n() {
+    document.documentElement.lang = uiLang === 'en' ? 'en' : 'ru';
+    for (const el of document.querySelectorAll('[data-i18n]')) {
+        const key = el.getAttribute('data-i18n');
+        if (key) el.textContent = t(key);
+    }
+    syncFullscreenButton();
+    const loadEl = document.getElementById('loading');
+    const ld = document.getElementById('loading-text');
+    if (ld && loadEl?.classList.contains('visible')) {
+        ld.textContent = t('loadingModels');
+    }
+    if (scoreDisplay && isPlaying) scoreDisplay.innerText = formatScore(score);
+    document.getElementById('players-count-group')?.setAttribute('aria-label', t('playerLabel'));
+}
+
 function loadPersistedSettings() {
-    soundEffectsEnabled = localStorage.getItem(STORAGE_SFX_OFF) !== '1';
-    musicEnabled = localStorage.getItem(STORAGE_MUSIC_OFF) !== '1';
-    const sfxCb = document.getElementById('opt-sound-off');
-    const musicCb = document.getElementById('opt-music-off');
-    if (sfxCb) sfxCb.checked = !soundEffectsEnabled;
-    if (musicCb) musicCb.checked = !musicEnabled;
+    let sVol = parseFloat(localStorage.getItem(STORAGE_SFX_VOL));
+    if (!Number.isFinite(sVol)) {
+        sVol = localStorage.getItem(STORAGE_SFX_OFF) === '1' ? 0 : 1;
+    }
+    sfxVolume01 = Math.max(0, Math.min(1, sVol));
+
+    let mVol = parseFloat(localStorage.getItem(STORAGE_MUSIC_VOL));
+    if (!Number.isFinite(mVol)) {
+        mVol = localStorage.getItem(STORAGE_MUSIC_OFF) === '1' ? 0 : 1;
+    }
+    musicVolume01 = Math.max(0, Math.min(1, mVol));
+
+    uiLang = loadLangPreference();
+
+    const volSfxEl = document.getElementById('vol-sfx');
+    const volMusicEl = document.getElementById('vol-music');
+    const volSfxVal = document.getElementById('vol-sfx-val');
+    const volMusicVal = document.getElementById('vol-music-val');
+    if (volSfxEl) volSfxEl.value = String(Math.round(sfxVolume01 * 100));
+    if (volMusicEl) volMusicEl.value = String(Math.round(musicVolume01 * 100));
+    if (volSfxVal) volSfxVal.textContent = `${Math.round(sfxVolume01 * 100)}%`;
+    if (volMusicVal) volMusicVal.textContent = `${Math.round(musicVolume01 * 100)}%`;
+
+    const optRu = document.getElementById('opt-lang-ru');
+    const optEn = document.getElementById('opt-lang-en');
+    if (optRu && optEn) {
+        optRu.checked = uiLang === 'ru';
+        optEn.checked = uiLang === 'en';
+    }
+    applyI18n();
+    applyMusicOutputVolumes();
 }
 
 const SFX_SHOOT_URLS = [
@@ -44,13 +180,13 @@ let shootSfxRot = 0;
 let hitSfxRot = 0;
 
 function playShootSound() {
-    if (!soundEffectsEnabled) return;
+    if (sfxVolume01 <= 0) return;
     const url = SFX_SHOOT_URLS[shootSfxRot++ % SFX_SHOOT_URLS.length];
     playOneShotSfx(url, 0.52);
 }
 
 function playHitSound() {
-    if (!soundEffectsEnabled) return;
+    if (sfxVolume01 <= 0) return;
     const url = SFX_HIT_URLS[hitSfxRot++ % SFX_HIT_URLS.length];
     playOneShotSfx(url, 0.82);
 }
@@ -101,9 +237,11 @@ function ensureSfxAudioBuffer(ctx, url) {
 
 function playDecodedSfx(ctx, buffer, volume) {
     if (ctx.state === 'suspended') void ctx.resume();
+    const v = Math.max(0, volume);
+    if (v <= 0) return;
     const src = ctx.createBufferSource();
     const gain = ctx.createGain();
-    gain.gain.value = volume;
+    gain.gain.value = v;
     src.buffer = buffer;
     src.connect(gain);
     gain.connect(ctx.destination);
@@ -111,31 +249,35 @@ function playDecodedSfx(ctx, buffer, volume) {
 }
 
 function playOneShotSfx(url, volume) {
-    if (!soundEffectsEnabled || !url) return;
+    if (sfxVolume01 <= 0 || !url) return;
+    const effectiveVol = volume * sfxVolume01;
+    if (effectiveVol <= 0) return;
     const ctx = window.__blastersAudioCtx || getOrCreateSfxContext();
     const ready = ctx && sfxAudioBufferByUrl.get(url);
     if (ctx && ready) {
         try {
-            playDecodedSfx(ctx, ready, volume);
+            playDecodedSfx(ctx, ready, effectiveVol);
         } catch (_) {
-            fallbackHtmlOneShot(url, volume);
+            fallbackHtmlOneShot(url, effectiveVol);
         }
         return;
     }
     if (ctx) {
         void ensureSfxAudioBuffer(ctx, url)
             .then((buf) => {
-                if (!soundEffectsEnabled) return;
+                if (sfxVolume01 <= 0) return;
+                const ev = volume * sfxVolume01;
+                if (ev <= 0) return;
                 try {
-                    playDecodedSfx(ctx, buf, volume);
+                    playDecodedSfx(ctx, buf, ev);
                 } catch (_) {
-                    fallbackHtmlOneShot(url, volume);
+                    fallbackHtmlOneShot(url, ev);
                 }
             })
-            .catch(() => fallbackHtmlOneShot(url, volume));
+            .catch(() => fallbackHtmlOneShot(url, effectiveVol));
         return;
     }
-    fallbackHtmlOneShot(url, volume);
+    fallbackHtmlOneShot(url, effectiveVol);
 }
 
 function fallbackHtmlOneShot(url, volume) {
@@ -184,12 +326,12 @@ function warmSfxAudioBuffersYielding() {
 }
 
 function preloadGameAudio() {
-    if (soundEffectsEnabled) {
+    if (sfxVolume01 > 0) {
         const sfxUrls = [...new Set([...SFX_SHOOT_URLS, ...SFX_HIT_URLS])].filter(Boolean);
         for (const u of sfxUrls) preloadHtmlAudioUrl(u);
         warmSfxAudioBuffersYielding();
     }
-    if (musicEnabled) {
+    if (musicVolume01 > 0) {
         preloadHtmlAudioUrl(MENU_MUSIC_URL);
         scheduleStaggeredOstPreload();
     }
@@ -260,17 +402,23 @@ function shuffleArrayInPlace(arr) {
     }
 }
 
+function applyMusicOutputVolumes() {
+    const m = Math.max(0, Math.min(1, musicVolume01));
+    if (menuMusicAudio) menuMusicAudio.volume = 0.52 * m;
+    if (gameMusicAudio) gameMusicAudio.volume = 0.46 * m;
+}
+
 function getMenuMusicAudio() {
     if (!menuMusicAudio) {
         menuMusicAudio = new Audio(MENU_MUSIC_URL);
         menuMusicAudio.loop = true;
-        menuMusicAudio.volume = 0.52;
     }
+    menuMusicAudio.volume = 0.52 * Math.max(0, Math.min(1, musicVolume01));
     return menuMusicAudio;
 }
 
 function playMenuMusic() {
-    if (!musicEnabled) return;
+    if (musicVolume01 <= 0) return;
     void getMenuMusicAudio().play().catch(() => {});
 }
 
@@ -293,7 +441,7 @@ function stopGameMusic() {
 }
 
 function playGameMusicTrackAt(index) {
-    if (!musicEnabled) {
+    if (musicVolume01 <= 0) {
         stopGameMusic();
         return;
     }
@@ -302,7 +450,7 @@ function playGameMusicTrackAt(index) {
     gameMusicPlaylistIndex = ((index % gameMusicPlaylist.length) + gameMusicPlaylist.length) % gameMusicPlaylist.length;
     const url = gameMusicPlaylist[gameMusicPlaylistIndex];
     const a = new Audio(url);
-    a.volume = 0.46;
+    a.volume = 0.46 * Math.max(0, Math.min(1, musicVolume01));
     gameMusicOnEnded = () => {
         gameMusicPlaylistIndex = (gameMusicPlaylistIndex + 1) % gameMusicPlaylist.length;
         playGameMusicTrackAt(gameMusicPlaylistIndex);
@@ -314,7 +462,7 @@ function playGameMusicTrackAt(index) {
 
 function startGameMusicPlaylist() {
     pauseMenuMusic();
-    if (!musicEnabled || !GAME_BG_TRACKS.length) return;
+    if (musicVolume01 <= 0 || !GAME_BG_TRACKS.length) return;
     gameMusicPlaylist = [...GAME_BG_TRACKS];
     shuffleArrayInPlace(gameMusicPlaylist);
     gameMusicPlaylistIndex = 0;
@@ -706,7 +854,7 @@ function startGame() {
     tryUnlockAudioOnUserGesture();
     gameOverOverlay?.classList.add('is-hidden');
     score = 0;
-    scoreDisplay.innerText = `Score: ${score}`;
+    scoreDisplay.innerText = formatScore(score);
     targets.length = 0;
     projectiles.length = 0;
     particles.length = 0;
@@ -770,7 +918,7 @@ function syncFullscreenButton() {
     if (!btnFullscreen) return;
     const isFs = !!getCurrentFullscreenElement();
     btnFullscreen.classList.toggle('is-active', isFs);
-    if (btnFullscreenLabel) btnFullscreenLabel.textContent = isFs ? 'Свернуть' : 'На весь экран';
+    if (btnFullscreenLabel) btnFullscreenLabel.textContent = isFs ? t('fullscreenExit') : t('fullscreen');
 }
 
 if (btnFullscreen) {
@@ -792,6 +940,7 @@ mainMenu.addEventListener(
         if (e.target?.closest?.('#btn-start')) return;
         if (e.target?.closest?.('.menu-player-row')) return;
         if (e.target?.closest?.('.menu-options')) return;
+        if (e.target?.closest?.('.menu-top-bar')) return;
         playMenuMusic();
     },
     { capture: true }
@@ -812,37 +961,64 @@ mainMenu.addEventListener(
     { capture: true, passive: true }
 );
 
-const optSoundOff = document.getElementById('opt-sound-off');
-const optMusicOff = document.getElementById('opt-music-off');
-if (optSoundOff) {
-    optSoundOff.addEventListener('change', () => {
-        soundEffectsEnabled = !optSoundOff.checked;
-        if (soundEffectsEnabled) localStorage.removeItem(STORAGE_SFX_OFF);
-        else localStorage.setItem(STORAGE_SFX_OFF, '1');
-    });
-}
-if (optMusicOff) {
-    optMusicOff.addEventListener('change', () => {
-        musicEnabled = !optMusicOff.checked;
-        if (musicEnabled) {
-            localStorage.removeItem(STORAGE_MUSIC_OFF);
-            if (!isPlaying) playMenuMusic();
-        } else {
-            localStorage.setItem(STORAGE_MUSIC_OFF, '1');
-            pauseMenuMusic();
-            stopGameMusic();
-        }
+const volSfxEl = document.getElementById('vol-sfx');
+const volMusicEl = document.getElementById('vol-music');
+const volSfxVal = document.getElementById('vol-sfx-val');
+const volMusicVal = document.getElementById('vol-music-val');
+
+volSfxEl?.addEventListener('input', () => {
+    sfxVolume01 = Math.max(0, Math.min(1, Number(volSfxEl.value) / 100));
+    localStorage.setItem(STORAGE_SFX_VOL, String(sfxVolume01));
+    if (volSfxVal) volSfxVal.textContent = `${Math.round(sfxVolume01 * 100)}%`;
+});
+
+volMusicEl?.addEventListener('input', () => {
+    musicVolume01 = Math.max(0, Math.min(1, Number(volMusicEl.value) / 100));
+    localStorage.setItem(STORAGE_MUSIC_VOL, String(musicVolume01));
+    if (volMusicVal) volMusicVal.textContent = `${Math.round(musicVolume01 * 100)}%`;
+    applyMusicOutputVolumes();
+    if (musicVolume01 <= 0) {
+        pauseMenuMusic();
+        stopGameMusic();
+    } else if (!isPlaying) {
+        playMenuMusic();
+    } else if (!gameMusicAudio) {
+        startGameMusicPlaylist();
+    }
+});
+
+for (const radio of document.querySelectorAll('input[name="blasters-lang"]')) {
+    radio.addEventListener('change', () => {
+        if (!radio.checked) return;
+        uiLang = radio.value === 'en' ? 'en' : 'ru';
+        localStorage.setItem(STORAGE_LANG, uiLang);
+        applyI18n();
+        applyMusicOutputVolumes();
     });
 }
 
-const optPlayers1 = document.getElementById('opt-players-1');
-const optPlayers2 = document.getElementById('opt-players-2');
+const btnPlayers1 = document.getElementById('btn-players-1');
+const btnPlayers2 = document.getElementById('btn-players-2');
 
-function syncPlayerCountRadios() {
-    if (!optPlayers1 || !optPlayers2) return;
-    optPlayers1.checked = playerModeCount === 1;
-    optPlayers2.checked = playerModeCount === 2;
+function syncPlayerCountButtons() {
+    if (!btnPlayers1 || !btnPlayers2) return;
+    btnPlayers1.classList.toggle('is-selected', playerModeCount === 1);
+    btnPlayers2.classList.toggle('is-selected', playerModeCount === 2);
+    btnPlayers1.setAttribute('aria-pressed', String(playerModeCount === 1));
+    btnPlayers2.setAttribute('aria-pressed', String(playerModeCount === 2));
 }
+
+function setPlayerMode(next, userInitiated) {
+    if (next !== 1 && next !== 2) return;
+    if (next === playerModeCount && userInitiated) return;
+    playerModeCount = next;
+    localStorage.setItem(STORAGE_PLAYER_COUNT, String(playerModeCount));
+    syncPlayerCountButtons();
+    if (userInitiated) void recreatePoseLandmarker();
+}
+
+btnPlayers1?.addEventListener('click', () => setPlayerMode(1, true));
+btnPlayers2?.addEventListener('click', () => setPlayerMode(2, true));
 
 async function createPoseLandmarkerInstance() {
     const vision = visionTasksResolver;
@@ -886,24 +1062,8 @@ async function recreatePoseLandmarker() {
     await createPoseLandmarkerInstance();
 }
 
-function applyPlayerModeFromUi(userInitiated) {
-    const next = optPlayers1?.checked ? 1 : 2;
-    if (next === playerModeCount && userInitiated) return;
-    playerModeCount = next;
-    localStorage.setItem(STORAGE_PLAYER_COUNT, String(playerModeCount));
-    syncPlayerCountRadios();
-    if (userInitiated) void recreatePoseLandmarker();
-}
-
-optPlayers1?.addEventListener('change', () => {
-    if (optPlayers1.checked) applyPlayerModeFromUi(true);
-});
-optPlayers2?.addEventListener('change', () => {
-    if (optPlayers2.checked) applyPlayerModeFromUi(true);
-});
-
 loadPersistedSettings();
-syncPlayerCountRadios();
+syncPlayerCountButtons();
 
 const POSE_CONNECTIONS = PoseLandmarker.POSE_CONNECTIONS;
 
@@ -2335,15 +2495,10 @@ function gameLoop(nowTime) {
     if (playersDisplay) {
         const n = orderedPersons.length;
         if (playerModeCount === 1) {
-            playersDisplay.textContent =
-                n >= 1 ? 'Режим: 1 игрок' : 'Режим: 1 игрок · встаньте в кадр';
+            playersDisplay.textContent = n >= 1 ? t('players1ok') : t('players1wait');
         } else {
             playersDisplay.textContent =
-                n >= 2
-                    ? 'Режим: 2 игрока · общий счёт'
-                    : n === 1
-                      ? 'Режим: 2 игрока · позовите второго'
-                      : 'Режим: 2 игрока · встаньте в кадр';
+                n >= 2 ? t('players2ok') : n === 1 ? t('players2wait1') : t('players2wait0');
         }
     }
 
@@ -2430,7 +2585,7 @@ function gameLoop(nowTime) {
                     if (t.armor <= 0) {
                         t.destroyed = true;
                         score += t.scoreValue ?? GAME_CFG.scoreTarget;
-                        scoreDisplay.innerText = `Score: ${score}`;
+                        scoreDisplay.innerText = formatScore(score);
                         playHitSound();
                         particles.push(new HitBurst(t.x, t.y, t.color));
                         for (let p = 0; p < 18; p++) particles.push(new Particle(t.x, t.y, t.color, 'dot'));
@@ -2481,28 +2636,25 @@ function showStartError(e) {
     console.error(e);
     const name = e?.name || '';
     const msg = e?.message || String(e);
-    let hint =
-        'Откройте консоль браузера (F12 → Console) и при необходимости пришлите текст ошибки.';
+    let hint = t('errHintDefault');
     if (name === 'NotAllowedError' || /Permission/i.test(msg)) {
-        hint =
-            'Браузер заблокировал камеру для этого сайта. Нажмите на значок замка слева от адреса → разрешите камеру, обновите страницу.';
+        hint = t('errHintPermission');
     } else if (name === 'NotFoundError' || /DevicesNotFound/i.test(msg)) {
-        hint = 'Камера не найдена. Проверьте, что она подключена и не занята другим приложением.';
+        hint = t('errHintNotFound');
     } else if (
         name === 'AbortError' ||
         /Timeout starting video source|metadata timeout/i.test(msg)
     ) {
-        hint =
-            'Камера не успела запуститься. Отключите режим эмуляции устройства в DevTools (или выберите реальное устройство с камерой), закройте другие программы, использующие камеру, и обновите страницу.';
+        hint = t('errHintAbort');
     }
     loadingElement.innerHTML = '';
     const wrap = document.createElement('div');
     wrap.style.cssText = 'max-width:28rem;margin:0 auto;text-align:left;line-height:1.45;font-size:0.95rem;';
-    const t = document.createElement('p');
-    t.textContent = 'Не удалось запустить игру.';
-    t.style.fontWeight = '700';
-    t.style.marginBottom = '0.5rem';
-    wrap.appendChild(t);
+    const titleEl = document.createElement('p');
+    titleEl.textContent = t('errTitle');
+    titleEl.style.fontWeight = '700';
+    titleEl.style.marginBottom = '0.5rem';
+    wrap.appendChild(titleEl);
     const d = document.createElement('p');
     d.style.opacity = '0.9';
     d.style.fontSize = '0.85rem';
@@ -2517,6 +2669,8 @@ function showStartError(e) {
     wrap.appendChild(h);
     loadingElement.appendChild(wrap);
     loadingElement.classList.add('visible');
+    const ld = document.getElementById('loading-text');
+    if (ld) ld.textContent = '';
 }
 
 async function start() {

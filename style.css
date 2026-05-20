@@ -148,21 +148,182 @@ canvas {
   box-shadow: 0 0 14px rgba(0, 0, 0, 0.45);
 }
 
-/** Floating «На весь экран» в верхнем правом углу меню */
-.btn-fullscreen {
+/** Верхний правый угол — та же палитра, что у .menu-panel / .menu-options */
+.menu-top-bar {
   position: absolute;
   top: max(0.75rem, env(safe-area-inset-top));
   right: max(0.75rem, env(safe-area-inset-right));
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.55rem;
+  pointer-events: auto;
+  width: min(13.5rem, calc(100vw - 1.5rem - env(safe-area-inset-right)));
+}
+
+.menu-corner-panel {
+  border-radius: 16px;
+  border: 1px solid rgba(0, 243, 255, 0.28);
+  background: linear-gradient(165deg, rgba(12, 18, 32, 0.92) 0%, rgba(8, 8, 14, 0.88) 100%);
+  padding: 0.5rem 0.65rem 0.65rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 24px rgba(0, 243, 255, 0.08);
+}
+
+.menu-corner-panel-title {
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(0, 243, 255, 0.92);
+  margin-bottom: 0.48rem;
+  text-shadow: 0 0 12px rgba(0, 243, 255, 0.35);
+}
+
+.menu-lang {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.menu-lang-pill {
+  position: relative;
+  flex: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.menu-lang-pill input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.menu-lang-pill span {
+  display: block;
+  text-align: center;
+  padding: 0.48rem 0.4rem;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.75);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.menu-lang-pill:hover span {
+  border-color: rgba(0, 243, 255, 0.35);
+}
+
+.menu-lang-pill input:checked + span {
+  border-color: rgba(0, 243, 255, 0.65);
+  background: linear-gradient(125deg, rgba(0, 243, 255, 0.28) 0%, rgba(255, 0, 234, 0.14) 100%);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(0, 243, 255, 0.28);
+}
+
+.menu-lang-pill input:focus-visible + span {
+  outline: 2px solid rgba(0, 243, 255, 0.75);
+  outline-offset: 2px;
+}
+
+.menu-player-quick {
+  display: flex;
+  flex-direction: row;
+  gap: 0.4rem;
+  width: 100%;
+  pointer-events: auto;
+}
+
+.btn-player-count {
+  font-family: inherit;
+  flex: 1;
+  min-width: 0;
+  padding: 0.48rem 0.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.btn-player-count:hover {
+  border-color: rgba(0, 243, 255, 0.35);
+}
+
+.btn-player-count.is-selected {
+  border-color: rgba(0, 243, 255, 0.65);
+  background: linear-gradient(125deg, rgba(0, 243, 255, 0.28) 0%, rgba(255, 0, 234, 0.14) 100%);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(0, 243, 255, 0.28);
+}
+
+.btn-player-count:focus-visible {
+  outline: 2px solid rgba(0, 243, 255, 0.75);
+  outline-offset: 2px;
+}
+
+.menu-volume-row {
+  margin-bottom: 0.9rem;
+}
+
+.menu-volume-row:last-child {
+  margin-bottom: 0;
+}
+
+.menu-volume-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: rgba(230, 250, 255, 0.92);
+}
+
+.menu-volume-value {
+  font-variant-numeric: tabular-nums;
+  color: rgba(0, 243, 255, 0.95);
+  font-size: 0.78rem;
+}
+
+.menu-volume-slider {
+  width: 100%;
+  height: 0.45rem;
+  border-radius: 999px;
+  accent-color: var(--neon-cyan);
+  cursor: pointer;
+}
+
+/** Кнопка полного экрана — в стиле основного меню */
+.btn-fullscreen {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: 100%;
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.45rem 0.85rem;
-  border-radius: 12px;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  padding: 0.52rem 0.85rem;
+  border-radius: 14px;
   border: 1px solid rgba(0, 243, 255, 0.35);
   background: rgba(8, 12, 22, 0.85);
   color: #e6faff;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;
   pointer-events: auto;
@@ -179,16 +340,27 @@ canvas {
   box-shadow: 0 0 16px rgba(0, 243, 255, 0.35);
 }
 
+.btn-fullscreen.is-active {
+  border-color: rgba(0, 243, 255, 0.65);
+  box-shadow: 0 0 16px rgba(0, 243, 255, 0.28);
+}
+
+.btn-fullscreen:focus-visible {
+  outline: 2px solid rgba(0, 243, 255, 0.75);
+  outline-offset: 3px;
+}
+
 .btn-fullscreen-on,
 .btn-fullscreen-off {
-  font-size: 1.05rem;
+  font-size: 1.08rem;
   line-height: 1;
+  opacity: 0.95;
 }
 
 .btn-fullscreen.is-active .btn-fullscreen-on { display: none; }
 .btn-fullscreen:not(.is-active) .btn-fullscreen-off { display: none; }
 
-/** В «нативном фуллскрине» на узком экране оставляем только иконку, чтобы не мешала */
+/** В «нативном фуллскрине» на узком экране оставляем только иконку */
 @media (max-width: 480px) {
   .btn-fullscreen-label { display: none; }
 }
