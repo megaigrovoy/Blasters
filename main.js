@@ -28,10 +28,6 @@ let playerModeCount = loadPlayerCountPreference();
 
 const I18N_STRINGS = {
     ru: {
-        heroSub: 'pose tracking · 1–2 игрока · руки = оружие',
-        menuHeading: 'Стреляйте по целям с камеры',
-        menuHint:
-            'Поднятая ладонь автоматически стреляет в направлении пальцев. Режим «Два» ищет две позы (тяжелее для CPU/GPU); «Один» — одну.',
         playerLabel: 'Игроков на камере',
         cornerLangTitle: 'Язык',
         cornerPlayersTitle: 'Игроки',
@@ -63,10 +59,6 @@ const I18N_STRINGS = {
             'Камера не успела запуститься. Отключите режим эмуляции устройства в DevTools (или выберите реальное устройство с камерой), закройте другие программы, использующие камеру, и обновите страницу.'
     },
     en: {
-        heroSub: 'pose tracking · 1–2 players · hands = weapons',
-        menuHeading: 'Shoot targets with your camera',
-        menuHint:
-            'A raised palm shoots along your fingers. “Two” tracks two poses (heavier on CPU/GPU); “One” tracks one.',
         playerLabel: 'Players in frame',
         cornerLangTitle: 'Language',
         cornerPlayersTitle: 'Players',
@@ -480,6 +472,10 @@ const hudGame = document.getElementById('hud-game');
 const btnBackMenu = document.getElementById('btn-back-menu');
 const btnStart = document.getElementById('btn-start');
 const playersDisplay = document.getElementById('players-display');
+const menuPosterImg = document.getElementById('menu-poster');
+if (menuPosterImg) {
+    menuPosterImg.src = new URL('./src/assets/img/menu-poster.png', import.meta.url).href;
+}
 
 let poseLandmarker;
 let visionTasksResolver = null;
