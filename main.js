@@ -1730,8 +1730,11 @@ function buildKeyedHandsFromPose(orderedPersons) {
 }
 
 const FACE_LM_INDICES = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+const POSE_HAND_LM_INDICES = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
 const POSE_FACE_ALPHA = 0.28;
 const POSE_BODY_ALPHA = 0.4;
+/** Кисти/плечи — выше, чтобы перчатки не отставали от линий трекера. */
+const POSE_HAND_ALPHA = isAndroidBrowser() ? 0.58 : 0.72;
 const POSE_TELEPORT_THRESHOLD = 0.22;
 const POSE_STATE_TTL_MS = 600;
 const poseSmoothByKey = new Map();
@@ -1751,7 +1754,11 @@ function smoothPoseLandmarks(personKey, rawLm, nowMs) {
             continue;
         }
         const prev = state.lm[i];
-        const alpha = FACE_LM_INDICES.has(i) ? POSE_FACE_ALPHA : POSE_BODY_ALPHA;
+        const alpha = FACE_LM_INDICES.has(i)
+            ? POSE_FACE_ALPHA
+            : POSE_HAND_LM_INDICES.has(i)
+              ? POSE_HAND_ALPHA
+              : POSE_BODY_ALPHA;
         if (!prev || Math.hypot(r.x - prev.x, r.y - prev.y) > POSE_TELEPORT_THRESHOLD) {
             state.lm[i] = { x: r.x, y: r.y, z: r.z, visibility: r.visibility };
         } else {
@@ -2105,12 +2112,10 @@ const GAUNTLET_ART_FORWARD_DOWN = Math.PI / 2;
 /** Доп. поворот (рад.), если спрайт смещён относительно пальца. */
 const GAUNTLET_ANGLE_FUDGE = 0;
 
-/** Сглаживание кулака на экране: положение кисти/пальца (EMA). */
-const GAUNTLET_OVERLAY_SMOOTH_ALPHA = 0.15;
-/** Сглаживание ширины плеч для масштаба (один раз на игрока за кадр). */
-const GAUNTLET_SHOULDER_SMOOTH_ALPHA = 0.18;
 /** Гистерезис смены спрайта «кулак вверх/вниз», в долях minSide (уменьшает мигание). */
 const GAUNTLET_AIM_HYST_MUL = 0.016;
+/** Сглаживание ширины плеч для масштаба перчатки (только на новом кадре камеры). */
+const GAUNTLET_SHOULDER_SMOOTH_ALPHA = 0.42;
 /** Сдвиг якоря от запястья к кулаку вдоль wrist→index (доля reach), чтобы PNG накрывал кисть. */
 const GAUNTLET_ANCHOR_ALONG_AIM_MUL_UP = 0.34;
 const GAUNTLET_ANCHOR_ALONG_AIM_MUL_DOWN = 0.52;
@@ -2317,41 +2322,29 @@ function drawVestSprite(ctx, lm, getScreenPoint, poseKey) {
     ctx.restore();
 }
 
-/** shoulderW: сглаженная ширина плеч (px). poseKey + hand — отдельное сглаживание кисти. */
+/** Только гистерезис up/down; позиция берётся из landmarks без доп. EMA (иначе сильно отстаёт от линий). */
 function drawGauntletSprite(ctx, wristLm, indexLm, getScreenPoint, poseKey, hand, shoulderW) {
     if (!wristLm || !indexLm) return;
     if ((wristLm.visibility ?? 1) < POSE_HAND_MIN_VISIBILITY) return;
 
     const W = getScreenPoint(wristLm);
     const I = getScreenPoint(indexLm);
-    const reachRaw = Math.hypot(I.x - W.x, I.y - W.y);
-    if (reachRaw < 8) return;
+    const reach = Math.hypot(I.x - W.x, I.y - W.y);
+    if (reach < 8) return;
 
     const hystPx = Math.max(10, gameLayout.minSide * GAUNTLET_AIM_HYST_MUL);
-    const a = GAUNTLET_OVERLAY_SMOOTH_ALPHA;
     const mapKey = `${poseKey}|${hand}`;
     let st = gauntletOverlayByHandKey.get(mapKey);
+    const dy = I.y - W.y;
     if (!st) {
-        const aimUp0 = I.y - W.y <= 0;
-        st = { wx: W.x, wy: W.y, ix: I.x, iy: I.y, aimUp: aimUp0 };
+        st = { aimUp: dy <= 0 };
         gauntletOverlayByHandKey.set(mapKey, st);
-    } else {
-        st.wx = st.wx * (1 - a) + W.x * a;
-        st.wy = st.wy * (1 - a) + W.y * a;
-        st.ix = st.ix * (1 - a) + I.x * a;
-        st.iy = st.iy * (1 - a) + I.y * a;
-    }
-
-    const dy = st.iy - st.wy;
-    if (st.aimUp) {
+    } else if (st.aimUp) {
         if (dy > hystPx) st.aimUp = false;
-    } else {
-        if (dy < -hystPx) st.aimUp = true;
+    } else if (dy < -hystPx) {
+        st.aimUp = true;
     }
     const aimUp = st.aimUp;
-
-    const reach = Math.hypot(st.ix - st.wx, st.iy - st.wy);
-    if (reach < 8) return;
 
     const key =
         hand === 'left' ? (aimUp ? 'lu' : 'ld') : aimUp ? 'ru' : 'rd';
@@ -2377,13 +2370,13 @@ function drawGauntletSprite(ctx, wristLm, indexLm, getScreenPoint, poseKey, hand
     scale = Math.min(scale, sw * GAUNTLET_SCALE_CAP_PER_SHOULDER_PX);
     scale = Math.max(GAUNTLET_SCALE_MIN, Math.min(GAUNTLET_SCALE_MAX, scale));
 
-    const angAim = Math.atan2(st.iy - st.wy, st.ix - st.wx);
+    const angAim = Math.atan2(I.y - W.y, I.x - W.x);
     const angImgForward = aimUp ? GAUNTLET_ART_FORWARD_UP : GAUNTLET_ART_FORWARD_DOWN;
     const rotation = angAim - angImgForward + GAUNTLET_ANGLE_FUDGE;
 
     const alongMul = aimUp ? GAUNTLET_ANCHOR_ALONG_AIM_MUL_UP : GAUNTLET_ANCHOR_ALONG_AIM_MUL_DOWN;
-    const ax = st.wx + (st.ix - st.wx) * alongMul;
-    const ay = st.wy + (st.iy - st.wy) * alongMul;
+    const ax = W.x + (I.x - W.x) * alongMul;
+    const ay = W.y + (I.y - W.y) * alongMul;
 
     ctx.save();
     ctx.translate(ax, ay);
@@ -2482,8 +2475,25 @@ function gameLoop(nowTime) {
             }
         }
 
+        const shoulderSmByPoseKey = new Map();
+        if (gotNewVideoPoseFrame) {
+            for (const { key: poseKey } of orderedPersons) {
+                const landmarks = smoothedLmByPoseKey.get(poseKey);
+                if (!landmarks) continue;
+                const p11g = getScreenPoint(landmarks[11]);
+                const p12g = getScreenPoint(landmarks[12]);
+                const shoulderWGauntlet = Math.hypot(p12g.x - p11g.x, p12g.y - p11g.y);
+                shoulderSmByPoseKey.set(
+                    poseKey,
+                    updateGauntletShoulderSmoothed(poseKey, shoulderWGauntlet)
+                );
+            }
+        }
+
         for (const { key: poseKey } of orderedPersons) {
             const landmarks = smoothedLmByPoseKey.get(poseKey);
+            if (!landmarks) continue;
+            const shoulderSm = shoulderSmByPoseKey.get(poseKey) ?? gauntletShoulderByPoseKey.get(poseKey)?.sw ?? 120;
             if (DRAW_POSE_SKELETON_LINES) {
                 canvasCtx.strokeStyle = 'rgba(0, 243, 255, 0.78)';
                 canvasCtx.lineWidth = 5;
@@ -2504,10 +2514,6 @@ function gameLoop(nowTime) {
 
             drawVestSprite(canvasCtx, landmarks, getScreenPoint, poseKey);
             drawHelmetSprite(canvasCtx, landmarks, getScreenPoint, poseKey);
-            const p11g = getScreenPoint(landmarks[11]);
-            const p12g = getScreenPoint(landmarks[12]);
-            const shoulderWGauntlet = Math.hypot(p12g.x - p11g.x, p12g.y - p11g.y);
-            const shoulderSm = updateGauntletShoulderSmoothed(poseKey, shoulderWGauntlet);
             drawGauntletSprite(
                 canvasCtx,
                 landmarks[15],
