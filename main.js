@@ -497,6 +497,13 @@ let lastVideoTime = -1;
 let poseDetectTsMs = 0;
 /** Сглаженные landmarks — обновляются только на новом кадре камеры (не на каждом rAF). */
 const cachedSmoothedLmByPoseKey = new Map();
+/** Цели и интерполированный вывод для плавной отрисовки между кадрами камеры (~30 fps → 120 Hz). */
+const posePrevTargetLmByPoseKey = new Map();
+const poseTargetLmByPoseKey = new Map();
+const poseDisplayLmByPoseKey = new Map();
+let poseFrameStartMs = 0;
+let poseFrameIntervalMs = 33.33;
+let prevVideoTimeForInterval = -1;
 let score = 0;
 let targets = [];
 let projectiles = [];
@@ -880,6 +887,12 @@ function startGame() {
     lastVideoTime = -1;
     poseDetectTsMs = 0;
     cachedSmoothedLmByPoseKey.clear();
+    posePrevTargetLmByPoseKey.clear();
+    poseTargetLmByPoseKey.clear();
+    poseDisplayLmByPoseKey.clear();
+    poseFrameStartMs = 0;
+    poseFrameIntervalMs = 33.33;
+    prevVideoTimeForInterval = -1;
     currentPoseResults = null;
     resetInvaderFormation();
     invaderNextDiveAtMs = performance.now() + 3400;
@@ -1086,6 +1099,12 @@ async function recreatePoseLandmarker() {
     lastVideoTime = -1;
     poseDetectTsMs = 0;
     cachedSmoothedLmByPoseKey.clear();
+    posePrevTargetLmByPoseKey.clear();
+    poseTargetLmByPoseKey.clear();
+    poseDisplayLmByPoseKey.clear();
+    poseFrameStartMs = 0;
+    poseFrameIntervalMs = 33.33;
+    prevVideoTimeForInterval = -1;
     currentPoseResults = null;
     await createPoseLandmarkerInstance();
 }
@@ -1218,12 +1237,26 @@ async function setupWebcam() {
     video.setAttribute('playsinline', '');
     video.setAttribute('autoplay', '');
 
-    const constraintSets = [
-        { video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } },
-        { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } },
-        { video: { facingMode: 'user' } },
-        { video: true }
-    ];
+    const constraintSets = isAndroidBrowser()
+        ? [
+              {
+                  video: {
+                      width: { ideal: 640 },
+                      height: { ideal: 480 },
+                      facingMode: 'user',
+                      frameRate: { ideal: 30, max: 30 }
+                  }
+              },
+              { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } },
+              { video: { facingMode: 'user' } },
+              { video: true }
+          ]
+        : [
+              { video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } },
+              { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } },
+              { video: { facingMode: 'user' } },
+              { video: true }
+          ];
 
     let lastErr;
     for (const constraints of constraintSets) {
@@ -1709,7 +1742,7 @@ function pruneHandInputSmoothState(activeKeys, nowMs) {
     }
 }
 
-function buildKeyedHandsFromPose(orderedPersons) {
+function buildKeyedHandsFromPose(orderedPersons, lmByPoseKey) {
     if (!orderedPersons.length) return [];
     const nowMs = performance.now();
     const activeKeys = new Set(orderedPersons.map((p) => p.key));
@@ -1719,7 +1752,11 @@ function buildKeyedHandsFromPose(orderedPersons) {
         const pkMatch = orderedPersons[p].key.match(/^Pose#(\d+)$/);
         const playerSuffix = pkMatch ? parseInt(pkMatch[1], 10) : p;
         const suffix = orderedPersons.length > 1 ? `#${playerSuffix}` : '';
-        const stableLm = smoothHandInputLm(orderedPersons[p].key, orderedPersons[p].lm, nowMs);
+        const poseLm =
+            lmByPoseKey?.get(orderedPersons[p].key) ??
+            cachedSmoothedLmByPoseKey.get(orderedPersons[p].key) ??
+            orderedPersons[p].lm;
+        const stableLm = smoothHandInputLm(orderedPersons[p].key, poseLm, nowMs);
         for (const def of POSE_BODY_HANDS) {
             const lm = buildSyntheticHandFromPose(stableLm, def);
             if (!lm) continue;
@@ -1782,6 +1819,81 @@ function prunePoseSmoothState(activeKeys, nowMs) {
             poseSmoothByKey.delete(k);
         }
     }
+}
+
+function cloneLandmarksArray(lm) {
+    return lm.map((p) => (p ? { x: p.x, y: p.y, z: p.z, visibility: p.visibility } : p));
+}
+
+function lerpLandmarksInto(fromLm, toLm, t, outLm) {
+    const n = toLm.length;
+    for (let i = 0; i < n; i++) {
+        const a = fromLm[i];
+        const b = toLm[i];
+        if (!b) {
+            outLm[i] = b;
+            continue;
+        }
+        if (!a) {
+            outLm[i] = { x: b.x, y: b.y, z: b.z, visibility: b.visibility };
+            continue;
+        }
+        outLm[i] = {
+            x: a.x + (b.x - a.x) * t,
+            y: a.y + (b.y - a.y) * t,
+            z: (a.z ?? 0) + ((b.z ?? 0) - (a.z ?? 0)) * t,
+            visibility: b.visibility
+        };
+    }
+}
+
+function prunePoseDisplayState(activeKeys) {
+    for (const k of [...poseTargetLmByPoseKey.keys()]) {
+        if (activeKeys.has(k)) continue;
+        poseTargetLmByPoseKey.delete(k);
+        posePrevTargetLmByPoseKey.delete(k);
+        poseDisplayLmByPoseKey.delete(k);
+    }
+}
+
+/** Между кадрами камеры плавно интерполируем prev→target по времени (120 Hz экран, ~30 fps камера). */
+function updatePoseDisplayLandmarks(activeKeys, nowMs) {
+    const interval = Math.max(16, poseFrameIntervalMs);
+    let t = (nowMs - poseFrameStartMs) / interval;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+    t = t * t * (3 - 2 * t);
+
+    for (const key of activeKeys) {
+        const target = poseTargetLmByPoseKey.get(key);
+        if (!target) continue;
+        const prev = posePrevTargetLmByPoseKey.get(key);
+        if (!prev || t <= 0) {
+            poseDisplayLmByPoseKey.set(key, cloneLandmarksArray(target));
+            continue;
+        }
+        let out = poseDisplayLmByPoseKey.get(key);
+        if (!out || out.length !== target.length) {
+            out = cloneLandmarksArray(target);
+            poseDisplayLmByPoseKey.set(key, out);
+        }
+        lerpLandmarksInto(prev, target, t, out);
+    }
+}
+
+function commitPoseTargetsFromFrame(orderedPersons, nowMs) {
+    for (const { lm: rawLm, key: poseKey } of orderedPersons) {
+        const smoothed = smoothPoseLandmarks(poseKey, rawLm, nowMs);
+        cachedSmoothedLmByPoseKey.set(poseKey, smoothed);
+        const prevTarget = poseTargetLmByPoseKey.get(poseKey);
+        if (prevTarget) {
+            posePrevTargetLmByPoseKey.set(poseKey, cloneLandmarksArray(prevTarget));
+        } else {
+            posePrevTargetLmByPoseKey.set(poseKey, cloneLandmarksArray(smoothed));
+        }
+        poseTargetLmByPoseKey.set(poseKey, smoothed);
+    }
+    poseFrameStartMs = nowMs;
 }
 
 function poseKeyFromHandKey(handKey) {
@@ -2156,7 +2268,7 @@ const HELMET_SCALE_MUL = 2.68;
 const HELMET_SCALE_MIN = 0.22;
 const HELMET_SCALE_MAX = 4.4;
 /** Сглаживание положения ушей/носа на экране (меньше — плавнее наклон шлема). */
-const HELMET_EAR_NOSE_SMOOTH_ALPHA = 0.14;
+const HELMET_EAR_NOSE_SMOOTH_ALPHA = isAndroidBrowser() ? 0.38 : 0.14;
 /** Сглаживание метрики поворота головы влево/вправо (front / left / right PNG). */
 const HELMET_YAW_ASYM_SMOOTH_ALPHA = 0.11;
 /** |asym| выше — переключаемся с фронта на боковой спрайт. */
@@ -2406,6 +2518,13 @@ function gameLoop(nowTime) {
     let gotNewVideoPoseFrame = false;
 
     if (lastVideoTime !== video.currentTime) {
+        if (prevVideoTimeForInterval >= 0 && video.currentTime > prevVideoTimeForInterval) {
+            poseFrameIntervalMs = Math.max(
+                20,
+                Math.min(50, (video.currentTime - prevVideoTimeForInterval) * 1000)
+            );
+        }
+        prevVideoTimeForInterval = video.currentTime;
         lastVideoTime = video.currentTime;
         gotNewVideoPoseFrame = true;
         let frameTsMs = Number.isFinite(video.currentTime) ? video.currentTime * 1000 : startTimeMs;
@@ -2449,7 +2568,7 @@ function gameLoop(nowTime) {
         };
     }
 
-    const smoothedLmByPoseKey = cachedSmoothedLmByPoseKey;
+    const displayLmByPoseKey = poseDisplayLmByPoseKey;
     let orderedPersons = [];
 
     if (currentPoseResults?.landmarks) {
@@ -2459,41 +2578,27 @@ function gameLoop(nowTime) {
 
         if (gotNewVideoPoseFrame) {
             prunePoseSmoothState(activePoseKeys, nowPoseMs);
+            prunePoseDisplayState(activePoseKeys);
             pruneHelmetPoseOverlayState(activePoseKeys);
             pruneGauntletOverlayState(activePoseKeys);
             prunePlayerArmorState(activePoseKeys);
-
-            for (const { lm: rawLm, key: poseKey } of orderedPersons) {
-                smoothedLmByPoseKey.set(poseKey, smoothPoseLandmarks(poseKey, rawLm, nowPoseMs));
-            }
+            commitPoseTargetsFromFrame(orderedPersons, nowPoseMs);
         }
 
-        if (gotNewVideoPoseFrame) {
-            for (const { key: poseKey } of orderedPersons) {
-                const landmarks = smoothedLmByPoseKey.get(poseKey);
-                if (landmarks) tickHelmetOverlayFromLm(poseKey, landmarks, getScreenPoint);
-            }
-        }
+        updatePoseDisplayLandmarks(activePoseKeys, nowPoseMs);
 
-        const shoulderSmByPoseKey = new Map();
-        if (gotNewVideoPoseFrame) {
-            for (const { key: poseKey } of orderedPersons) {
-                const landmarks = smoothedLmByPoseKey.get(poseKey);
-                if (!landmarks) continue;
-                const p11g = getScreenPoint(landmarks[11]);
-                const p12g = getScreenPoint(landmarks[12]);
-                const shoulderWGauntlet = Math.hypot(p12g.x - p11g.x, p12g.y - p11g.y);
-                shoulderSmByPoseKey.set(
-                    poseKey,
-                    updateGauntletShoulderSmoothed(poseKey, shoulderWGauntlet)
-                );
-            }
+        for (const { key: poseKey } of orderedPersons) {
+            const landmarks = displayLmByPoseKey.get(poseKey);
+            if (landmarks) tickHelmetOverlayFromLm(poseKey, landmarks, getScreenPoint);
         }
 
         for (const { key: poseKey } of orderedPersons) {
-            const landmarks = smoothedLmByPoseKey.get(poseKey);
+            const landmarks = displayLmByPoseKey.get(poseKey);
             if (!landmarks) continue;
-            const shoulderSm = shoulderSmByPoseKey.get(poseKey) ?? gauntletShoulderByPoseKey.get(poseKey)?.sw ?? 120;
+            const p11g = getScreenPoint(landmarks[11]);
+            const p12g = getScreenPoint(landmarks[12]);
+            const shoulderWGauntlet = Math.hypot(p12g.x - p11g.x, p12g.y - p11g.y);
+            const shoulderSm = Math.max(40, shoulderWGauntlet);
             if (DRAW_POSE_SKELETON_LINES) {
                 canvasCtx.strokeStyle = 'rgba(0, 243, 255, 0.78)';
                 canvasCtx.lineWidth = 5;
@@ -2545,7 +2650,7 @@ function gameLoop(nowTime) {
         }
     }
 
-    const keyedHands = buildKeyedHandsFromPose(orderedPersons);
+    const keyedHands = buildKeyedHandsFromPose(orderedPersons, displayLmByPoseKey);
     const fireNow = performance.now();
 
     for (const { key, landmarks } of keyedHands) {
@@ -2604,7 +2709,7 @@ function gameLoop(nowTime) {
         const t = targets[i];
         t.update(dt);
         if (!t.destroyed && orderedPersons.length) {
-            tryInvaderPlayerArmorCollision(t, orderedPersons, smoothedLmByPoseKey, getScreenPoint);
+            tryInvaderPlayerArmorCollision(t, orderedPersons, displayLmByPoseKey, getScreenPoint);
         }
         t.draw(canvasCtx);
         if (!t.destroyed && t.y > gameLayout.h + 120) {
