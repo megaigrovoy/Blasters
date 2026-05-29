@@ -12,6 +12,18 @@ const STORAGE_PLAYER_COUNT = 'blasters-player-count';
 const DEBUG_FRAME_PERF =
     typeof location !== 'undefined' && new URLSearchParams(location.search).get('perf') === '1';
 
+/** Android: GPU-делегат MediaPipe часто даёт нестабильные landmarks (см. mobile-tracking-fix.md). */
+function isAndroidBrowser() {
+    return typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+}
+
+const trackTuning = {
+    /** На Android сначала CPU; на ПК/iPad — GPU (быстрее и стабилен). */
+    preferCpuPose: isAndroidBrowser(),
+    handMinVisibility: isAndroidBrowser() ? 0.3 : 0.55,
+    minPoseConfidence: isAndroidBrowser() ? 0.3 : 0.5
+};
+
 /** 0…1 — громкость эффектов и музыки (ползунки) */
 let sfxVolume01 = 1;
 let musicVolume01 = 1;
@@ -481,6 +493,10 @@ let poseLandmarker;
 let visionTasksResolver = null;
 let mediapipePoseDelegate = 'CPU';
 let lastVideoTime = -1;
+/** Монотонный timestamp для detectForVideo (Android иногда откатывает video.currentTime). */
+let poseDetectTsMs = 0;
+/** Сглаженные landmarks — обновляются только на новом кадре камеры (не на каждом rAF). */
+const cachedSmoothedLmByPoseKey = new Map();
 let score = 0;
 let targets = [];
 let projectiles = [];
@@ -861,6 +877,10 @@ function startGame() {
     gauntletShoulderByPoseKey.clear();
     playerArmorByPoseKey.clear();
     stablePoseShoulderMid = [];
+    lastVideoTime = -1;
+    poseDetectTsMs = 0;
+    cachedSmoothedLmByPoseKey.clear();
+    currentPoseResults = null;
     resetInvaderFormation();
     invaderNextDiveAtMs = performance.now() + 3400;
     mainMenu.classList.add('is-hidden');
@@ -1023,6 +1043,7 @@ async function createPoseLandmarkerInstance() {
         return;
     }
     const np = playerModeCount === 1 ? 1 : 2;
+    const conf = trackTuning.minPoseConfidence;
     const poseOpts = (delegate) => ({
         baseOptions: {
             modelAssetPath:
@@ -1030,19 +1051,28 @@ async function createPoseLandmarkerInstance() {
             delegate
         },
         runningMode: 'VIDEO',
-        numPoses: np
+        numPoses: np,
+        minPoseDetectionConfidence: conf,
+        minPosePresenceConfidence: conf,
+        minTrackingConfidence: conf
     });
 
-    try {
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, poseOpts('GPU'));
-        mediapipePoseDelegate = 'GPU';
-    } catch (e) {
-        console.warn('PoseLandmarker GPU failed, CPU:', e);
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, poseOpts('CPU'));
-        mediapipePoseDelegate = 'CPU';
+    const delegateOrder = trackTuning.preferCpuPose ? ['CPU', 'GPU'] : ['GPU', 'CPU'];
+    let lastErr;
+    for (const delegate of delegateOrder) {
+        try {
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, poseOpts(delegate));
+            mediapipePoseDelegate = delegate;
+            console.info(
+                `[Blasters] pose delegate: ${mediapipePoseDelegate}, numPoses=${np}, androidCpuFirst=${trackTuning.preferCpuPose}`
+            );
+            return;
+        } catch (e) {
+            lastErr = e;
+            console.warn(`PoseLandmarker ${delegate} failed:`, e);
+        }
     }
-
-    console.info(`[Blasters] pose delegate: ${mediapipePoseDelegate}, numPoses=${np}`);
+    throw lastErr ?? new Error('PoseLandmarker init failed');
 }
 
 async function recreatePoseLandmarker() {
@@ -1054,6 +1084,8 @@ async function recreatePoseLandmarker() {
         poseLandmarker = null;
     }
     lastVideoTime = -1;
+    poseDetectTsMs = 0;
+    cachedSmoothedLmByPoseKey.clear();
     currentPoseResults = null;
     await createPoseLandmarkerInstance();
 }
@@ -1405,7 +1437,7 @@ const POSE_BODY_HANDS = [
     { key: 'PoseRight', wristIdx: 16, indexIdx: 20, pinkyIdx: 18, thumbIdx: 22 }
 ];
 
-const POSE_HAND_MIN_VISIBILITY = 0.55;
+const POSE_HAND_MIN_VISIBILITY = trackTuning.handMinVisibility;
 
 /** Доли длины запястье→кончик для MCP/PIP/DIP (угловато, но ближе к реальной кисти и к линиям трекера). */
 const SYNTH_FINGER_FRACS = { mcp: 0.14, pip: 0.42, dip: 0.72 };
@@ -2378,10 +2410,14 @@ function gameLoop(nowTime) {
     lastFrameTime = nowTime;
 
     const startTimeMs = performance.now();
+    let gotNewVideoPoseFrame = false;
 
     if (lastVideoTime !== video.currentTime) {
         lastVideoTime = video.currentTime;
-        const frameTsMs = Number.isFinite(video.currentTime) ? video.currentTime * 1000 : startTimeMs;
+        gotNewVideoPoseFrame = true;
+        let frameTsMs = Number.isFinite(video.currentTime) ? video.currentTime * 1000 : startTimeMs;
+        if (frameTsMs <= poseDetectTsMs) frameTsMs = poseDetectTsMs + 1;
+        poseDetectTsMs = frameTsMs;
         try {
             const pRes = poseLandmarker.detectForVideo(video, frameTsMs);
             if (pRes) currentPoseResults = pRes;
@@ -2420,25 +2456,30 @@ function gameLoop(nowTime) {
         };
     }
 
-    const smoothedLmByPoseKey = new Map();
+    const smoothedLmByPoseKey = cachedSmoothedLmByPoseKey;
     let orderedPersons = [];
 
     if (currentPoseResults?.landmarks) {
         orderedPersons = bindStablePoseKeys(getOrderedPersons(currentPoseResults), getScreenPoint);
         const nowPoseMs = performance.now();
         const activePoseKeys = new Set(orderedPersons.map((p) => p.key));
-        prunePoseSmoothState(activePoseKeys, nowPoseMs);
-        pruneHelmetPoseOverlayState(activePoseKeys);
-        pruneGauntletOverlayState(activePoseKeys);
-        prunePlayerArmorState(activePoseKeys);
 
-        for (const { lm: rawLm, key: poseKey } of orderedPersons) {
-            smoothedLmByPoseKey.set(poseKey, smoothPoseLandmarks(poseKey, rawLm, nowPoseMs));
+        if (gotNewVideoPoseFrame) {
+            prunePoseSmoothState(activePoseKeys, nowPoseMs);
+            pruneHelmetPoseOverlayState(activePoseKeys);
+            pruneGauntletOverlayState(activePoseKeys);
+            prunePlayerArmorState(activePoseKeys);
+
+            for (const { lm: rawLm, key: poseKey } of orderedPersons) {
+                smoothedLmByPoseKey.set(poseKey, smoothPoseLandmarks(poseKey, rawLm, nowPoseMs));
+            }
         }
 
-        for (const { key: poseKey } of orderedPersons) {
-            const landmarks = smoothedLmByPoseKey.get(poseKey);
-            tickHelmetOverlayFromLm(poseKey, landmarks, getScreenPoint);
+        if (gotNewVideoPoseFrame) {
+            for (const { key: poseKey } of orderedPersons) {
+                const landmarks = smoothedLmByPoseKey.get(poseKey);
+                if (landmarks) tickHelmetOverlayFromLm(poseKey, landmarks, getScreenPoint);
+            }
         }
 
         for (const { key: poseKey } of orderedPersons) {
