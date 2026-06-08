@@ -103,6 +103,41 @@ canvas {
   display: none;
 }
 
+.victory-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 5, 16, 0.62);
+  pointer-events: none;
+  font-weight: 900;
+  font-size: clamp(2.4rem, 11vw, 5.2rem);
+  letter-spacing: 0.08em;
+  color: #ffab40;
+  text-shadow:
+    0 0 16px rgba(255, 171, 64, 0.95),
+    0 0 36px rgba(77, 184, 255, 0.55),
+    0 0 64px rgba(255, 107, 53, 0.35);
+  animation: victory-pop 0.5s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+}
+
+.victory-overlay.is-hidden {
+  display: none;
+}
+
+@keyframes victory-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .hud-row {
   display: flex;
   align-items: center;
