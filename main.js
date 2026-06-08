@@ -1286,7 +1286,7 @@ function startGame() {
     invaderNextDiveAtMs = performance.now() + 3400;
     mainMenu.classList.add('is-hidden');
     hudGame.classList.remove('is-hidden');
-    canvasElement.style.visibility = '';
+    canvasElement.style.visibility = 'visible';
     isPlaying = true;
     void video.play().catch(() => {});
     queueMicrotask(() => {
