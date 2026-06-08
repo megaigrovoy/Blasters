@@ -12,6 +12,8 @@ const STORAGE_LEADERBOARD = 'blasters-leaderboard-top10';
 
 const FINAL_LEVEL = 5;
 const LEADERBOARD_MAX = 10;
+const SHOOT_TUTORIAL_MS = 5000;
+const SHOOT_TUTORIAL_IMG_URL = new URL('./src/assets/img/tut.webp', import.meta.url).href;
 
 const DEBUG_FRAME_PERF =
     typeof location !== 'undefined' && new URLSearchParams(location.search).get('perf') === '1';
@@ -66,6 +68,8 @@ const I18N_STRINGS = {
         leaderboardNewRecord: 'Новый рекорд!',
         leaderboardNoTop: 'Не попал в топ-10',
         leaderboardEmpty: 'Пока нет результатов',
+        tutShootUp: 'Подними руки вверх — стрельба',
+        tutShootDown: 'Опусти руки — остановка стрельбы',
         levelLabel: 'Уровень',
         loadingModels: 'Загрузка моделей…',
         players1ok: 'Режим: 1 игрок',
@@ -105,6 +109,8 @@ const I18N_STRINGS = {
         leaderboardNewRecord: 'New record!',
         leaderboardNoTop: 'Not in top 10',
         leaderboardEmpty: 'No scores yet',
+        tutShootUp: 'Raise your hands to shoot',
+        tutShootDown: 'Lower your hands to stop shooting',
         levelLabel: 'Level',
         loadingModels: 'Loading models…',
         players1ok: 'Mode: 1 player',
@@ -509,6 +515,9 @@ const canvasCtx = canvasElement.getContext('2d');
 const scoreDisplay = document.getElementById('score-display');
 const gameOverOverlay = document.getElementById('game-over-overlay');
 const victoryOverlay = document.getElementById('victory-overlay');
+const shootTutorialOverlay = document.getElementById('shoot-tutorial-overlay');
+const shootTutorialImg = document.getElementById('shoot-tutorial-img');
+const shootTutorialCountdown = document.getElementById('shoot-tutorial-countdown');
 const campaignCompleteOverlay = document.getElementById('campaign-complete-overlay');
 const campaignScoreLine = document.getElementById('campaign-score-line');
 const campaignRankLine = document.getElementById('campaign-rank-line');
@@ -524,6 +533,9 @@ const playersDisplay = document.getElementById('players-display');
 const menuPosterImg = document.getElementById('menu-poster');
 if (menuPosterImg) {
     menuPosterImg.src = new URL('./src/assets/img/menu-poster.png', import.meta.url).href;
+}
+if (shootTutorialImg) {
+    shootTutorialImg.src = SHOOT_TUTORIAL_IMG_URL;
 }
 
 let poseLandmarker;
@@ -545,6 +557,9 @@ let score = 0;
 let currentLevel = 1;
 let victoryTransitionActive = false;
 let victoryTimeoutId = null;
+let shootTutorialActive = false;
+let shootTutorialTimeoutId = null;
+let shootTutorialCountdownId = null;
 const VICTORY_DISPLAY_MS = 2600;
 let targets = [];
 let powerUpDrops = [];
@@ -1512,8 +1527,51 @@ function playerLoadoutFullyDestroyed(poseKey) {
     );
 }
 
+function clearShootTutorial() {
+    if (shootTutorialTimeoutId != null) {
+        clearTimeout(shootTutorialTimeoutId);
+        shootTutorialTimeoutId = null;
+    }
+    if (shootTutorialCountdownId != null) {
+        clearInterval(shootTutorialCountdownId);
+        shootTutorialCountdownId = null;
+    }
+    shootTutorialActive = false;
+    shootTutorialOverlay?.classList.add('is-hidden');
+}
+
+function showShootTutorial(onDone) {
+    clearShootTutorial();
+    shootTutorialActive = true;
+    const totalSec = Math.ceil(SHOOT_TUTORIAL_MS / 1000);
+    let secLeft = totalSec;
+    if (shootTutorialCountdown) shootTutorialCountdown.textContent = String(secLeft);
+    shootTutorialOverlay?.classList.remove('is-hidden');
+    shootTutorialCountdownId = setInterval(() => {
+        secLeft -= 1;
+        if (shootTutorialCountdown) {
+            shootTutorialCountdown.textContent = secLeft > 0 ? String(secLeft) : '';
+        }
+        if (secLeft <= 0) {
+            clearInterval(shootTutorialCountdownId);
+            shootTutorialCountdownId = null;
+        }
+    }, 1000);
+    shootTutorialTimeoutId = setTimeout(() => {
+        if (shootTutorialCountdownId != null) {
+            clearInterval(shootTutorialCountdownId);
+            shootTutorialCountdownId = null;
+        }
+        shootTutorialTimeoutId = null;
+        shootTutorialActive = false;
+        shootTutorialOverlay?.classList.add('is-hidden');
+        onDone?.();
+    }, SHOOT_TUTORIAL_MS);
+}
+
 function showMainMenu() {
     isPlaying = false;
+    clearShootTutorial();
     clearVictoryTransition();
     stopGameMusic();
     gameOverOverlay?.classList.add('is-hidden');
@@ -1577,9 +1635,11 @@ function startGame(startLevel = 1) {
     canvasElement.style.visibility = 'visible';
     isPlaying = true;
     void video.play().catch(() => {});
-    queueMicrotask(() => {
+    showShootTutorial(() => {
         startGameMusicPlaylist();
         spawnInvaderWave();
+    });
+    queueMicrotask(() => {
         requestAnimationFrame(gameLoop);
     });
 }
@@ -3191,7 +3251,10 @@ async function preloadCharacterSprites() {
             )
         ),
         ...vestSpriteUrls.map((url, i) => loadSpriteImage(vestSprites[i], url, `vest dmg${i}`)),
-        ...POWERUP_TYPES.map((t) => loadSpriteImage(powerUpSprites[t], POWERUP_SPRITE_URLS[t], `powerup ${t}`))
+        ...POWERUP_TYPES.map((t) => loadSpriteImage(powerUpSprites[t], POWERUP_SPRITE_URLS[t], `powerup ${t}`)),
+        ...(shootTutorialImg
+            ? [loadSpriteImage(shootTutorialImg, SHOOT_TUTORIAL_IMG_URL, 'shoot tutorial')]
+            : [])
     ];
     await Promise.all(tasks);
 }
@@ -3871,7 +3934,7 @@ function gameLoop(nowTime) {
     const keyedHands = buildKeyedHandsFromPose(orderedPersons, displayLmByPoseKey);
     const fireNow = performance.now();
 
-    if (!victoryTransitionActive) {
+    if (!victoryTransitionActive && !shootTutorialActive) {
         for (const { key, landmarks } of keyedHands) {
         const wrist = getScreenPoint(landmarks[0]);
         const tip = getScreenPoint(landmarks[8]);
@@ -3917,7 +3980,7 @@ function gameLoop(nowTime) {
     tickPlayerBuffs(orderedPersons);
 
     const nowPerf = performance.now();
-    if (!victoryTransitionActive) {
+    if (!victoryTransitionActive && !shootTutorialActive) {
     for (let i = powerUpDrops.length - 1; i >= 0; i--) {
         const drop = powerUpDrops[i];
         drop.update(dt);

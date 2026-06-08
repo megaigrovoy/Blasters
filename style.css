@@ -133,6 +133,90 @@ canvas {
   display: none !important;
 }
 
+.shoot-tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(6, 4, 14, 0.82);
+  pointer-events: auto;
+  animation: victory-pop 0.35s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+}
+
+.shoot-tutorial-overlay.is-hidden {
+  display: none;
+}
+
+.shoot-tutorial-wrap {
+  width: min(96vw, 920px);
+}
+
+.shoot-tutorial-figure {
+  position: relative;
+}
+
+.shoot-tutorial-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  box-shadow:
+    0 0 28px rgba(78, 184, 255, 0.28),
+    0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.shoot-tutorial-labels {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  pointer-events: none;
+}
+
+.shoot-tutorial-half {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 13% 0.65rem 0;
+}
+
+.shoot-tutorial-half--left {
+  padding-top: 8%;
+}
+
+.shoot-tutorial-label {
+  max-width: 86%;
+  text-align: center;
+  font-weight: 800;
+  font-size: clamp(0.88rem, 3.4vw, 1.32rem);
+  line-height: 1.28;
+  letter-spacing: 0.02em;
+  color: #fff;
+  text-shadow:
+    0 0 10px rgba(0, 0, 0, 0.95),
+    0 2px 10px rgba(0, 0, 0, 0.85);
+  padding: 0.5rem 0.7rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.48);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.shoot-tutorial-countdown {
+  margin-top: 0.9rem;
+  text-align: center;
+  font-size: clamp(3.2rem, 11vw, 4.8rem);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: #7ec8ff;
+  text-shadow:
+    0 0 14px rgba(78, 184, 255, 0.75),
+    0 0 28px rgba(255, 171, 64, 0.35);
+}
+
 .campaign-complete-overlay {
   position: fixed;
   inset: 0;

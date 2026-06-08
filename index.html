@@ -32,6 +32,22 @@
           <div id="victory-overlay" class="victory-overlay is-hidden" aria-live="polite">
             <span data-i18n="victory">Победа!</span>
           </div>
+          <div id="shoot-tutorial-overlay" class="shoot-tutorial-overlay is-hidden" aria-live="polite">
+            <div class="shoot-tutorial-wrap">
+              <div class="shoot-tutorial-figure">
+                <img id="shoot-tutorial-img" class="shoot-tutorial-img" alt="" width="1200" height="600" />
+                <div class="shoot-tutorial-labels">
+                  <div class="shoot-tutorial-half shoot-tutorial-half--left">
+                    <span class="shoot-tutorial-label" data-i18n="tutShootDown">Опусти руки — остановка стрельбы</span>
+                  </div>
+                  <div class="shoot-tutorial-half">
+                    <span class="shoot-tutorial-label" data-i18n="tutShootUp">Подними руки вверх — стрельба</span>
+                  </div>
+                </div>
+              </div>
+              <div id="shoot-tutorial-countdown" class="shoot-tutorial-countdown">5</div>
+            </div>
+          </div>
           <div id="campaign-complete-overlay" class="campaign-complete-overlay is-hidden" aria-live="polite">
             <div class="campaign-complete-panel">
               <h2 class="campaign-complete-title" data-i18n="youWon">Ты победил!</h2>
