@@ -548,6 +548,10 @@ const POWERUP_SPRITE_URLS = {
     homing: new URL('./src/assets/img/R bon.png', import.meta.url).href
 };
 const powerUpSprites = Object.fromEntries(POWERUP_TYPES.map((t) => [t, new Image()]));
+const WEAPON_SHOT_COLORS = {
+    spread: '#ff1744',
+    homing: '#ffd740'
+};
 const handWeaponByKey = new Map();
 const playerBuffByPoseKey = new Map();
 let projectiles = [];
@@ -1795,7 +1799,7 @@ class PowerUpDrop {
         this.type = type;
         this.color = POWERUP_COLORS[type] ?? '#ffffff';
         this.vy = gameLayout.minSide * 0.00165;
-        this.r = 30;
+        this.r = 53;
         this.dead = false;
         this.bobT = Math.random() * 6;
     }
@@ -1933,6 +1937,16 @@ function trySpawnPowerUpDrop(x, y, enemy) {
     if (chance <= 0 || Math.random() > chance) return;
     const type = POWERUP_TYPES[(Math.random() * POWERUP_TYPES.length) | 0];
     powerUpDrops.push(new PowerUpDrop(x, y, type));
+}
+
+function shotColorForHand(handKey, playerColor) {
+    const w = getHandWeapon(handKey);
+    const now = performance.now();
+    if (w.mode === 'homing' && w.homingUntil > 0 && now < w.homingUntil) {
+        return WEAPON_SHOT_COLORS.homing;
+    }
+    if (w.mode === 'spread') return WEAPON_SHOT_COLORS.spread;
+    return playerColor;
 }
 
 function fireFromHand(handKey, ox, oy, dx, dy, color) {
@@ -3533,7 +3547,8 @@ function gameLoop(nowTime) {
         if (fireNow - last < GAME_CFG.fireCooldownMs) continue;
 
         const pid = playerIndexFromHandKey(key);
-        const color = pid === 0 ? '#00f3ff' : '#ff00ea';
+        const playerColor = pid === 0 ? '#00f3ff' : '#ff00ea';
+        const color = shotColorForHand(key, playerColor);
 
         const ox = wrist.x + dx * 44;
         const oy = wrist.y + dy * 44;
