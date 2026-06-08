@@ -129,6 +129,134 @@ canvas {
   display: none;
 }
 
+.is-hidden {
+  display: none !important;
+}
+
+.campaign-complete-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(8, 5, 16, 0.82);
+  pointer-events: auto;
+  animation: victory-pop 0.45s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+}
+
+.campaign-complete-overlay.is-hidden {
+  display: none;
+}
+
+.campaign-complete-panel {
+  width: min(92vw, 420px);
+  padding: 1.5rem 1.35rem 1.25rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 171, 64, 0.35);
+  background: linear-gradient(165deg, rgba(22, 14, 32, 0.96) 0%, rgba(12, 8, 20, 0.98) 100%);
+  box-shadow:
+    0 0 28px rgba(255, 171, 64, 0.25),
+    0 0 48px rgba(77, 184, 255, 0.15);
+  text-align: center;
+}
+
+.campaign-complete-title {
+  margin: 0 0 0.65rem;
+  font-size: clamp(1.65rem, 7vw, 2.35rem);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #ffab40;
+  text-shadow:
+    0 0 14px rgba(255, 171, 64, 0.9),
+    0 0 28px rgba(77, 184, 255, 0.45);
+}
+
+.campaign-score-line,
+.campaign-rank-line {
+  margin: 0.35rem 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.campaign-rank-line {
+  color: #7ec8ff;
+  margin-bottom: 1rem;
+}
+
+.leaderboard-block {
+  margin: 0.5rem 0 1.1rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(78, 184, 255, 0.2);
+  text-align: left;
+}
+
+.leaderboard-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 0.55rem;
+}
+
+.leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.leaderboard-list li {
+  display: grid;
+  grid-template-columns: 2rem 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.35rem 0.4rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.leaderboard-list li.is-highlight {
+  background: rgba(255, 171, 64, 0.18);
+  color: #ffcc80;
+}
+
+.leaderboard-rank {
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 800;
+}
+
+.leaderboard-score {
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard-date {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.leaderboard-empty {
+  grid-template-columns: 1fr !important;
+  justify-content: center;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 600;
+}
+
+.btn-campaign-menu {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
 @keyframes victory-pop {
   0% {
     opacity: 0;

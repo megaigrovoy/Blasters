@@ -8,10 +8,13 @@ const STORAGE_SFX_VOL = 'blasters-sfx-vol';
 const STORAGE_MUSIC_VOL = 'blasters-music-vol';
 const STORAGE_LANG = 'blasters-lang';
 const STORAGE_PLAYER_COUNT = 'blasters-player-count';
+const STORAGE_LEADERBOARD = 'blasters-leaderboard-top10';
+
+const FINAL_LEVEL = 5;
+const LEADERBOARD_MAX = 10;
 
 const DEBUG_FRAME_PERF =
     typeof location !== 'undefined' && new URLSearchParams(location.search).get('perf') === '1';
-
 /** Android: GPU-делегат MediaPipe часто даёт нестабильные landmarks (см. mobile-tracking-fix.md). */
 function isAndroidBrowser() {
     return typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
@@ -56,6 +59,13 @@ const I18N_STRINGS = {
         fullscreenExit: 'Свернуть',
         gameOver: 'ИГРА ОКОНЧЕНА',
         victory: 'Победа!',
+        youWon: 'Ты победил!',
+        leaderboardTitle: 'Топ-10 на этом устройстве',
+        campaignScore: 'Итоговый счёт',
+        leaderboardRank: 'Место в рейтинге',
+        leaderboardNewRecord: 'Новый рекорд!',
+        leaderboardNoTop: 'Не попал в топ-10',
+        leaderboardEmpty: 'Пока нет результатов',
         levelLabel: 'Уровень',
         loadingModels: 'Загрузка моделей…',
         players1ok: 'Режим: 1 игрок',
@@ -88,6 +98,13 @@ const I18N_STRINGS = {
         fullscreenExit: 'Exit fullscreen',
         gameOver: 'GAME OVER',
         victory: 'Victory!',
+        youWon: 'You won!',
+        leaderboardTitle: 'Top 10 on this device',
+        campaignScore: 'Final score',
+        leaderboardRank: 'Leaderboard rank',
+        leaderboardNewRecord: 'New record!',
+        leaderboardNoTop: 'Not in top 10',
+        leaderboardEmpty: 'No scores yet',
         levelLabel: 'Level',
         loadingModels: 'Loading models…',
         players1ok: 'Mode: 1 player',
@@ -492,6 +509,11 @@ const canvasCtx = canvasElement.getContext('2d');
 const scoreDisplay = document.getElementById('score-display');
 const gameOverOverlay = document.getElementById('game-over-overlay');
 const victoryOverlay = document.getElementById('victory-overlay');
+const campaignCompleteOverlay = document.getElementById('campaign-complete-overlay');
+const campaignScoreLine = document.getElementById('campaign-score-line');
+const campaignRankLine = document.getElementById('campaign-rank-line');
+const leaderboardList = document.getElementById('leaderboard-list');
+const btnCampaignMenu = document.getElementById('btn-campaign-menu');
 const levelDisplay = document.getElementById('level-display');
 const loadingElement = document.getElementById('loading');
 const mainMenu = document.getElementById('main-menu');
@@ -623,12 +645,21 @@ function getLevelWaveSpec(level = currentLevel) {
             bossKind: 'mega'
         };
     }
+    if (level === 4) {
+        return {
+            rowLayout: ['tank', 'tank', 'light', 'light'],
+            bossCount: 2,
+            dualBoss: true,
+            bossFullWidth: false,
+            bossKind: 'mega'
+        };
+    }
     return {
-        rowLayout: ['tank', 'tank', 'light', 'light'],
-        bossCount: 2,
-        dualBoss: true,
-        bossFullWidth: false,
-        bossKind: 'mega'
+        rowLayout: ['tank', 'medium', 'medium', 'light'],
+        bossCount: 1,
+        dualBoss: false,
+        bossFullWidth: true,
+        bossKind: 'ultra'
     };
 }
 
@@ -649,6 +680,20 @@ const BOSS_PHASES_MEGA = [
     { spawnIntervalMs: 1700, moveSpeedMul: 0.46, minionsPerBurst: 3 },
     { spawnIntervalMs: 950, moveSpeedMul: 0.62, minionsPerBurst: 4 }
 ];
+
+const BOSS_PHASES_ULTRA = [
+    { spawnIntervalMs: 3600, moveSpeedMul: 0.19, minionsPerBurst: 1 },
+    { spawnIntervalMs: 2800, moveSpeedMul: 0.28, minionsPerBurst: 2 },
+    { spawnIntervalMs: 2000, moveSpeedMul: 0.38, minionsPerBurst: 3 },
+    { spawnIntervalMs: 1300, moveSpeedMul: 0.52, minionsPerBurst: 4 },
+    { spawnIntervalMs: 850, moveSpeedMul: 0.66, minionsPerBurst: 5 }
+];
+
+const BOSS_LASER_HALF_WIDTH = 50;
+const BOSS_LASER_CHARGE_MS = 1000;
+const BOSS_LASER_FIRE_MS = 2000;
+/** Пауза между лазерами по стадии урона (2–5 этап). */
+const BOSS_LASER_COOLDOWN_BY_STAGE = { 1: 7000, 2: 5200, 3: 3800, 4: 2400 };
 
 const BOSS_ARMOR_BASE = 54;
 
@@ -900,8 +945,21 @@ class Invader {
     }
 }
 
+function bossStageCount(boss) {
+    if (boss?.isUltra) return 5;
+    if (boss?.isMega) return 4;
+    return 3;
+}
+
 function bossDamageStage(armor, armorMax, stageCount = 3) {
     const r = armor / armorMax;
+    if (stageCount === 5) {
+        if (r > 0.8) return 0;
+        if (r > 0.6) return 1;
+        if (r > 0.4) return 2;
+        if (r > 0.2) return 3;
+        return 4;
+    }
     if (stageCount === 4) {
         if (r > 0.75) return 0;
         if (r > 0.5) return 1;
@@ -956,6 +1014,10 @@ function bossPaintPixels(ctx, s, stage, march, hitFlash) {
         px(-2, -10, 4, 2, '#ffeb3b');
         px(4, 1, 3, 4, '#263238');
     }
+    if (stage >= 4) {
+        px(-7, -11, 14, 3, '#ff1744');
+        px(-3, -12, 6, 2, '#ffffff');
+    }
     const podY = 4 + (march > 0.5 ? 1 : 0);
     px(-7, podY, 3, 3, trim);
     px(4, podY, 3, 3, trim);
@@ -978,24 +1040,29 @@ class Boss {
     constructor(opts = {}) {
         const layout = gameLayout;
         this.isBoss = true;
-        this.isMega = !!opts.isMega;
+        this.isUltra = !!opts.isUltra;
+        this.isMega = !this.isUltra && !!opts.isMega;
         this.isMinion = false;
         this.isDiving = false;
-        this.kind = this.isMega ? 'megaBoss' : 'boss';
-        const baseArmor = this.isMega ? BOSS_ARMOR_BASE * 2 : BOSS_ARMOR_BASE;
+        this.kind = this.isUltra ? 'ultraBoss' : this.isMega ? 'megaBoss' : 'boss';
+        const baseArmor = this.isUltra
+            ? BOSS_ARMOR_BASE * 3
+            : this.isMega
+              ? BOSS_ARMOR_BASE * 2
+              : BOSS_ARMOR_BASE;
         this.armorMax = baseArmor;
         this.armor = baseArmor;
-        this.color = this.isMega ? '#d500f9' : '#e040fb';
-        this.scoreValue = this.isMega ? 920 : 520;
-        const sizeMul = this.isMega ? 0.21 : 0.155;
-        const sizeCap = this.isMega ? 280 : 220;
-        const sizeMin = this.isMega ? 110 : 90;
+        this.color = this.isUltra ? '#b71c1c' : this.isMega ? '#d500f9' : '#e040fb';
+        this.scoreValue = this.isUltra ? 1280 : this.isMega ? 920 : 520;
+        const sizeMul = this.isUltra ? 0.27 : this.isMega ? 0.21 : 0.155;
+        const sizeCap = this.isUltra ? 340 : this.isMega ? 280 : 220;
+        const sizeMin = this.isUltra ? 130 : this.isMega ? 110 : 90;
         this.s = Math.min(sizeCap, Math.max(sizeMin, layout.minSide * sizeMul));
-        this.hitR = this.s * (this.isMega ? 0.42 : 0.4);
+        this.hitR = this.s * (this.isUltra ? 0.44 : this.isMega ? 0.42 : 0.4);
         this.patrolFullWidth = !!opts.patrolFullWidth;
         const xFrac = opts.xFrac ?? 0.5;
         this.baseX = layout.w * xFrac;
-        this.baseY = layout.minSide * (this.isMega ? 0.11 : 0.13);
+        this.baseY = layout.minSide * (this.isUltra ? 0.1 : this.isMega ? 0.11 : 0.13);
         this.x = this.baseX;
         this.y = this.baseY;
         this.destroyed = false;
@@ -1005,14 +1072,28 @@ class Boss {
         this.vertT = this.isMega ? Math.random() * Math.PI * 2 : 0;
         this.nextSpawnAtMs = performance.now() + 1400;
         this._lastDamageStage = 0;
+        this.hasBossLaser =
+            this.isUltra || (this.isMega && currentLevel >= 3 && currentLevel <= 4);
+        this.laserLastStageOnly = this.hasBossLaser && !this.isUltra;
+        if (this.hasBossLaser) {
+            this.laserState = 'idle';
+            this.laserNextAttackAtMs = this.laserLastStageOnly ? 0 : performance.now() + 4500;
+            this.laserStateUntilMs = 0;
+            this.laserChargeGlow = 0;
+            this.laserLockX = this.x;
+            this.laserLockY = this.y;
+            this.laserHitCooldownByPoseKey = new Map();
+        }
     }
 
     get damageStage() {
-        return bossDamageStage(this.armor, this.armorMax, this.isMega ? 4 : 3);
+        return bossDamageStage(this.armor, this.armorMax, bossStageCount(this));
     }
 
     get phaseCfg() {
-        return (this.isMega ? BOSS_PHASES_MEGA : BOSS_PHASES)[this.damageStage];
+        if (this.isUltra) return BOSS_PHASES_ULTRA[this.damageStage];
+        if (this.isMega) return BOSS_PHASES_MEGA[this.damageStage];
+        return BOSS_PHASES[this.damageStage];
     }
 
     spawnMinions() {
@@ -1042,30 +1123,125 @@ class Boss {
         }
     }
 
+    updateBossLaser(nowMs) {
+        const stage = this.damageStage;
+        const lastStage = bossStageCount(this) - 1;
+        if (this.laserLastStageOnly) {
+            if (stage < lastStage) return;
+            if (this.laserState === 'idle' && !this.laserNextAttackAtMs) {
+                this.laserNextAttackAtMs = nowMs + 2000 + Math.random() * 1000;
+            }
+        } else if (stage < 1) {
+            return;
+        }
+
+        if (this.laserState === 'idle') {
+            if (nowMs >= this.laserNextAttackAtMs) {
+                this.laserState = 'charging';
+                this.laserStateUntilMs = nowMs + BOSS_LASER_CHARGE_MS;
+                this.laserLockX = this.x;
+                this.laserLockY = this.y;
+                this.laserChargeGlow = 0;
+            }
+            return;
+        }
+
+        this.x = this.laserLockX;
+        this.y = this.laserLockY;
+
+        if (this.laserState === 'charging') {
+            const chargeStart = this.laserStateUntilMs - BOSS_LASER_CHARGE_MS;
+            this.laserChargeGlow = Math.min(1, (nowMs - chargeStart) / BOSS_LASER_CHARGE_MS);
+            if (nowMs >= this.laserStateUntilMs) {
+                this.laserState = 'firing';
+                this.laserStateUntilMs = nowMs + BOSS_LASER_FIRE_MS;
+                this.laserHitCooldownByPoseKey.clear();
+            }
+            return;
+        }
+
+        if (this.laserState === 'firing' && nowMs >= this.laserStateUntilMs) {
+            this.laserState = 'idle';
+            const cooldown = BOSS_LASER_COOLDOWN_BY_STAGE[stage] ?? 7000;
+            this.laserNextAttackAtMs = nowMs + cooldown * (0.85 + Math.random() * 0.3);
+        }
+    }
+
+    isLaserBusy() {
+        return (
+            this.hasBossLaser && (this.laserState === 'charging' || this.laserState === 'firing')
+        );
+    }
+
+    drawBossLaser(ctx) {
+        if (!this.hasBossLaser) return;
+        const cx = this.laserLockX;
+        const cy = this.laserLockY;
+
+        if (this.laserState === 'charging') {
+            const pulse = this.laserChargeGlow;
+            ctx.save();
+            ctx.globalAlpha = 0.3 + pulse * 0.5;
+            ctx.shadowColor = '#ff1744';
+            ctx.shadowBlur = 20 + pulse * 36;
+            ctx.fillStyle = `rgba(255, 23, 68, ${0.2 + pulse * 0.55})`;
+            ctx.beginPath();
+            ctx.arc(cx, cy, this.s * (0.42 + pulse * 0.28), 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            return;
+        }
+
+        if (this.laserState !== 'firing') return;
+
+        const top = cy + this.s * 0.34;
+        const h = Math.max(0, gameLayout.h - top);
+        const hw = BOSS_LASER_HALF_WIDTH;
+        const grad = ctx.createLinearGradient(cx, top, cx, gameLayout.h);
+        grad.addColorStop(0, 'rgba(255, 120, 160, 0.95)');
+        grad.addColorStop(0.35, 'rgba(255, 23, 68, 0.82)');
+        grad.addColorStop(1, 'rgba(255, 23, 68, 0.12)');
+        ctx.save();
+        ctx.fillStyle = grad;
+        ctx.shadowColor = '#ff1744';
+        ctx.shadowBlur = 32;
+        ctx.fillRect(cx - hw, top, hw * 2, h);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.fillRect(cx - hw * 0.1, top, hw * 0.2, h);
+        ctx.restore();
+    }
+
     update(dt = 1, nowMs = performance.now()) {
         if (this.destroyed) return;
+        if (this.hasBossLaser) this.updateBossLaser(nowMs);
+
+        const laserBusy = this.isLaserBusy();
         const es = enemySlowFactor();
         this.marchT += dt * 0.14;
-        this.moveT += dt * 0.055 * this.phaseCfg.moveSpeedMul * es;
-        if (this.patrolFullWidth) {
-            const margin = this.s * 0.42 + gameLayout.minSide * 0.035;
-            const amp = Math.max(40, gameLayout.w * 0.5 - margin);
-            this.x = gameLayout.w * 0.5 + Math.sin(this.moveT) * amp;
-            this.baseX = this.x;
-        } else {
-            const sway = gameLayout.w * 0.06 * this.phaseCfg.moveSpeedMul * es;
-            this.x = this.baseX + Math.sin(this.moveT) * sway;
+
+        if (!laserBusy) {
+            this.moveT += dt * 0.055 * this.phaseCfg.moveSpeedMul * es;
+            if (this.patrolFullWidth) {
+                const margin = this.s * 0.42 + gameLayout.minSide * 0.035;
+                const amp = Math.max(40, gameLayout.w * 0.5 - margin);
+                this.x = gameLayout.w * 0.5 + Math.sin(this.moveT) * amp;
+                this.baseX = this.x;
+            } else {
+                const sway = gameLayout.w * 0.06 * this.phaseCfg.moveSpeedMul * es;
+                this.x = this.baseX + Math.sin(this.moveT) * sway;
+            }
+            if (this.isMega) {
+                this.vertT += dt * 0.014;
+                const vertDepth = gameLayout.minSide * 0.135;
+                const vertOff = (Math.sin(this.vertT) * 0.5 + 0.5) * vertDepth;
+                this.y = this.baseY + vertOff;
+            } else {
+                this.y = this.baseY + Math.sin(this.moveT * 0.65) * gameLayout.minSide * 0.01;
+            }
         }
-        if (this.isMega) {
-            this.vertT += dt * 0.014;
-            const vertDepth = gameLayout.minSide * 0.135;
-            const vertOff = (Math.sin(this.vertT) * 0.5 + 0.5) * vertDepth;
-            this.y = this.baseY + vertOff;
-        } else {
-            this.y = this.baseY + Math.sin(this.moveT * 0.65) * gameLayout.minSide * 0.01;
-        }
+
         if (this.hitFlash > 0) this.hitFlash -= 0.13 * dt;
-        if (nowMs >= this.nextSpawnAtMs) {
+        if (!laserBusy && nowMs >= this.nextSpawnAtMs) {
             this.spawnMinions();
             this.nextSpawnAtMs = nowMs + this.phaseCfg.spawnIntervalMs * (0.82 + Math.random() * 0.36);
         }
@@ -1073,18 +1249,24 @@ class Boss {
 
     draw(ctx) {
         if (this.destroyed) return;
+        this.drawBossLaser(ctx);
         const stage = this.damageStage;
         ctx.save();
         ctx.translate(this.x, this.y);
         if (this.hitFlash > 0) {
             ctx.shadowColor = '#ffffff';
             ctx.shadowBlur = 28;
+        } else if (this.hasBossLaser && this.laserState === 'charging') {
+            ctx.shadowColor = '#ff1744';
+            ctx.shadowBlur = 24 + this.laserChargeGlow * 28;
         } else {
-            const glowColors = this.isMega
-                ? ['#d500f9', '#ff6d00', '#ff1744', '#ff5252']
-                : ['#e040fb', '#ff6d00', '#ff1744'];
+            const glowColors = this.isUltra
+                ? ['#b71c1c', '#ff6d00', '#ff1744', '#ff5252', '#ffeb3b']
+                : this.isMega
+                  ? ['#d500f9', '#ff6d00', '#ff1744', '#ff5252']
+                  : ['#e040fb', '#ff6d00', '#ff1744'];
             ctx.shadowColor = glowColors[stage] ?? glowColors[glowColors.length - 1];
-            ctx.shadowBlur = (this.isMega ? 20 : 16) + stage * 4;
+            ctx.shadowBlur = (this.isUltra ? 22 : this.isMega ? 20 : 16) + stage * 4;
         }
         const march = (Math.sin(this.marchT) + 1) * 0.5;
         bossPaintPixels(ctx, this.s, stage, march, this.hitFlash);
@@ -1093,8 +1275,9 @@ class Boss {
 }
 
 function spawnSingleBoss(xFrac, opts = {}) {
+    const isUltra = opts.isUltra ?? false;
     const isMega = opts.isMega ?? false;
-    const boss = new Boss({ xFrac, patrolFullWidth: opts.patrolFullWidth ?? false, isMega });
+    const boss = new Boss({ xFrac, patrolFullWidth: opts.patrolFullWidth ?? false, isUltra, isMega });
     const armorBonus = Math.max(0, currentLevel - 1) * 6;
     boss.armorMax += armorBonus;
     boss.armor = boss.armorMax;
@@ -1104,13 +1287,85 @@ function spawnSingleBoss(xFrac, opts = {}) {
 function spawnBosses() {
     if (targets.some((t) => !t.destroyed)) return;
     const spec = getLevelWaveSpec();
+    const isUltra = spec.bossKind === 'ultra';
     const isMega = spec.bossKind === 'mega';
     if (spec.bossCount <= 1) {
-        spawnSingleBoss(0.5, { patrolFullWidth: spec.bossFullWidth, isMega });
+        spawnSingleBoss(0.5, { patrolFullWidth: spec.bossFullWidth, isUltra, isMega });
     } else {
-        spawnSingleBoss(0.28, { isMega });
-        spawnSingleBoss(0.72, { isMega });
+        spawnSingleBoss(0.28, { isUltra, isMega });
+        spawnSingleBoss(0.72, { isUltra, isMega });
     }
+}
+
+function loadLeaderboard() {
+    try {
+        const raw = localStorage.getItem(STORAGE_LEADERBOARD);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .filter((e) => e && Number.isFinite(e.score))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, LEADERBOARD_MAX);
+    } catch {
+        return [];
+    }
+}
+
+function formatLeaderboardDate(ts) {
+    try {
+        return new Date(ts).toLocaleDateString(uiLang === 'en' ? 'en-US' : 'ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: '2-digit'
+        });
+    } catch {
+        return '';
+    }
+}
+
+function renderLeaderboardList(entries, highlightId = null) {
+    if (!leaderboardList) return;
+    leaderboardList.innerHTML = '';
+    if (!entries.length) {
+        const li = document.createElement('li');
+        li.className = 'leaderboard-empty';
+        li.textContent = t('leaderboardEmpty');
+        leaderboardList.appendChild(li);
+        return;
+    }
+    entries.forEach((entry, i) => {
+        const li = document.createElement('li');
+        if (entry.id === highlightId) li.classList.add('is-highlight');
+        const rank = document.createElement('span');
+        rank.className = 'leaderboard-rank';
+        rank.textContent = `${i + 1}.`;
+        const sc = document.createElement('span');
+        sc.className = 'leaderboard-score';
+        sc.textContent = String(entry.score);
+        const dt = document.createElement('span');
+        dt.className = 'leaderboard-date';
+        dt.textContent = formatLeaderboardDate(entry.at);
+        li.append(rank, sc, dt);
+        leaderboardList.appendChild(li);
+    });
+}
+
+/** @returns {{ saved: boolean, rank: number|null, entries: object[], entryId: string|null }} */
+function saveScoreToLeaderboard(finalScore) {
+    const entries = loadLeaderboard();
+    const entry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        score: finalScore,
+        at: Date.now()
+    };
+    const merged = [...entries, entry].sort((a, b) => b.score - a.score);
+    const top = merged.slice(0, LEADERBOARD_MAX);
+    const saved = top.some((e) => e.id === entry.id);
+    if (saved) {
+        localStorage.setItem(STORAGE_LEADERBOARD, JSON.stringify(top));
+    }
+    const rank = saved ? top.findIndex((e) => e.id === entry.id) + 1 : null;
+    return { saved, rank, entries: loadLeaderboard(), entryId: saved ? entry.id : null };
 }
 
 function clearVictoryTransition() {
@@ -1120,6 +1375,32 @@ function clearVictoryTransition() {
     }
     victoryTransitionActive = false;
     victoryOverlay?.classList.add('is-hidden');
+    campaignCompleteOverlay?.classList.add('is-hidden');
+}
+
+function triggerCampaignComplete() {
+    if (victoryTransitionActive) return;
+    victoryTransitionActive = true;
+    gamePhase = 'campaignComplete';
+    projectiles.length = 0;
+    isPlaying = false;
+    stopGameMusic();
+
+    const result = saveScoreToLeaderboard(score);
+    if (campaignScoreLine) {
+        campaignScoreLine.textContent = `${t('campaignScore')}: ${score}`;
+    }
+    if (campaignRankLine) {
+        if (result.saved && result.rank === 1) {
+            campaignRankLine.textContent = `${t('leaderboardNewRecord')} #${result.rank}`;
+        } else if (result.saved && result.rank) {
+            campaignRankLine.textContent = `${t('leaderboardRank')}: #${result.rank}`;
+        } else {
+            campaignRankLine.textContent = t('leaderboardNoTop');
+        }
+    }
+    renderLeaderboardList(result.entries, result.entryId);
+    campaignCompleteOverlay?.classList.remove('is-hidden');
 }
 
 function triggerVictoryAndNextLevel() {
@@ -1150,7 +1431,11 @@ function checkWaveProgress() {
         gamePhase = 'boss';
         spawnBosses();
     } else if (gamePhase === 'boss') {
-        triggerVictoryAndNextLevel();
+        if (currentLevel >= FINAL_LEVEL) {
+            triggerCampaignComplete();
+        } else {
+            triggerVictoryAndNextLevel();
+        }
     }
 }
 
@@ -1182,12 +1467,15 @@ function spawnInvaderWave() {
     const rowsAboveClip = Math.max(0, nRows - Math.min(nRows, INVADER_START_VISIBLE_ROWS));
     const shiftUp = rowsAboveClip * rowGap;
 
-    const armorBonus = Math.max(0, currentLevel - 1);
+    const levelHpBonus = currentLevel >= 3 ? 1 : 0;
     bossesDefeatedThisLevel = 0;
 
     for (let r = 0; r < nRows; r++) {
         const tierDef = rowDefs[r];
-        const tier = { ...tierDef, armorMax: tierDef.armorMax + armorBonus };
+        const tier =
+            levelHpBonus > 0
+                ? { ...tierDef, armorMax: tierDef.armorMax + levelHpBonus }
+                : tierDef;
         const worldY = row0FromTop + r * rowGap - shiftUp;
         for (let c = 0; c < cols; c++) {
             const inv = new Invader(tier.kind, tier);
@@ -1250,11 +1538,11 @@ function showMainMenu() {
     playMenuMusic();
 }
 
-function startGame() {
+function startGame(startLevel = 1) {
     tryUnlockAudioOnUserGesture();
     clearVictoryTransition();
     gameOverOverlay?.classList.add('is-hidden');
-    currentLevel = 1;
+    currentLevel = Math.max(1, Math.min(FINAL_LEVEL, startLevel));
     bossesDefeatedThisLevel = 0;
     updateLevelDisplay();
     score = 0;
@@ -1296,8 +1584,9 @@ function startGame() {
     });
 }
 
-btnStart?.addEventListener('click', () => startGame());
+btnStart?.addEventListener('click', () => startGame(1));
 btnBackMenu?.addEventListener('click', () => showMainMenu());
+btnCampaignMenu?.addEventListener('click', () => showMainMenu());
 
 const gameContainer = document.getElementById('game-container');
 const btnFullscreen = document.getElementById('btn-fullscreen');
@@ -2695,6 +2984,97 @@ function getGloveHitDisc(lm, getScreenPoint, drawHand, shoulderW) {
     return { x: p.x, y: p.y, r };
 }
 
+function laserBeamHitsDisc(cx, halfW, y0, y1, disc) {
+    if (!disc) return false;
+    if (disc.y + disc.r < y0 || disc.y - disc.r > y1) return false;
+    return Math.abs(disc.x - cx) <= halfW + disc.r;
+}
+
+function damagePlayerArmorPiece(poseKey, kind, hitX, hitY, burstColor) {
+    if (isPlayerInvincible(poseKey)) return;
+
+    const a = getOrCreatePlayerArmor(poseKey);
+    let pieceBroken = false;
+    if (kind === 'helmet') {
+        if (a.helmetHits < HELMET_HITS_TO_BREAK) {
+            a.helmetHits += 1;
+            pieceBroken = a.helmetHits >= HELMET_HITS_TO_BREAK;
+        }
+    } else if (kind === 'vest') {
+        if (a.vestHits < VEST_HITS_TO_BREAK) {
+            a.vestHits += 1;
+            pieceBroken = a.vestHits >= VEST_HITS_TO_BREAK;
+        }
+    } else if (kind === 'gloveL') {
+        if (a.gloveLHits < GLOVE_HITS_TO_BREAK) {
+            a.gloveLHits += 1;
+            pieceBroken = a.gloveLHits >= GLOVE_HITS_TO_BREAK;
+        }
+    } else if (kind === 'gloveR') {
+        if (a.gloveRHits < GLOVE_HITS_TO_BREAK) {
+            a.gloveRHits += 1;
+            pieceBroken = a.gloveRHits >= GLOVE_HITS_TO_BREAK;
+        }
+    }
+
+    playHitSound();
+    particles.push(new HitBurst(hitX, hitY, burstColor));
+    for (let p = 0; p < 10; p++) particles.push(new Particle(hitX, hitY, burstColor, 'dot'));
+    for (let p = 0; p < 8; p++) particles.push(new Particle(hitX, hitY, burstColor, 'spark'));
+    if (pieceBroken) {
+        for (let p = 0; p < 22; p++) particles.push(new Particle(hitX, hitY, '#e0e0e0', 'dot'));
+        for (let p = 0; p < 16; p++) particles.push(new Particle(hitX, hitY, '#ff1744', 'spark'));
+        particles.push(new HitBurst(hitX, hitY, '#ffffff'));
+        if (kind === 'gloveL' || kind === 'gloveR') {
+            resetHandWeapon(handKeyFromPoseAndGlove(poseKey, kind));
+        }
+    }
+}
+
+function tryBossLaserPlayerCollision(boss, orderedPersons, smoothedLmByPoseKey, getScreenPoint, nowMs) {
+    if (!boss.hasBossLaser || boss.laserState !== 'firing') return;
+
+    const cx = boss.laserLockX;
+    const y0 = boss.laserLockY + boss.s * 0.34;
+    const y1 = gameLayout.h;
+    const halfW = BOSS_LASER_HALF_WIDTH;
+
+    for (const { key: poseKey } of orderedPersons) {
+        const lastHit = boss.laserHitCooldownByPoseKey.get(poseKey) ?? 0;
+        if (nowMs - lastHit < 360) continue;
+
+        const lm = smoothedLmByPoseKey.get(poseKey);
+        if (!lm) continue;
+        const lmLs = lm[11];
+        const lmRs = lm[12];
+        if (!lmLs || !lmRs) continue;
+        const p11 = getScreenPoint(lmLs);
+        const p12 = getScreenPoint(lmRs);
+        const shoulderW = Math.hypot(p12.x - p11.x, p12.y - p11.y);
+        if (shoulderW < 14) continue;
+
+        const armor = getOrCreatePlayerArmor(poseKey);
+        const hc = armor.helmetHits < HELMET_HITS_TO_BREAK ? getHelmetHitDisc(poseKey) : null;
+        const vc = armor.vestHits < VEST_HITS_TO_BREAK ? getVestHitDisc(lm, getScreenPoint) : null;
+        const gLeft =
+            armor.gloveLHits < GLOVE_HITS_TO_BREAK ? getGloveHitDisc(lm, getScreenPoint, 'right', shoulderW) : null;
+        const gRight =
+            armor.gloveRHits < GLOVE_HITS_TO_BREAK ? getGloveHitDisc(lm, getScreenPoint, 'left', shoulderW) : null;
+
+        let hit = null;
+        if (hc && laserBeamHitsDisc(cx, halfW, y0, y1, hc)) hit = { poseKey, kind: 'helmet', cx: hc.x, cy: hc.y };
+        else if (vc && laserBeamHitsDisc(cx, halfW, y0, y1, vc)) hit = { poseKey, kind: 'vest', cx: vc.x, cy: vc.y };
+        else if (gLeft && laserBeamHitsDisc(cx, halfW, y0, y1, gLeft))
+            hit = { poseKey, kind: 'gloveL', cx: gLeft.x, cy: gLeft.y };
+        else if (gRight && laserBeamHitsDisc(cx, halfW, y0, y1, gRight))
+            hit = { poseKey, kind: 'gloveR', cx: gRight.x, cy: gRight.y };
+
+        if (!hit || isPlayerInvincible(hit.poseKey)) continue;
+        boss.laserHitCooldownByPoseKey.set(poseKey, nowMs);
+        damagePlayerArmorPiece(hit.poseKey, hit.kind, hit.cx, hit.cy, '#ff1744');
+    }
+}
+
 function tryInvaderPlayerArmorCollision(inv, orderedPersons, smoothedLmByPoseKey, getScreenPoint) {
     if (inv.destroyed || inv.hitR == null) return;
     let best = null;
@@ -2740,43 +3120,11 @@ function tryInvaderPlayerArmorCollision(inv, orderedPersons, smoothedLmByPoseKey
     if (!best) return;
     if (isPlayerInvincible(best.poseKey)) return;
 
-    const a = getOrCreatePlayerArmor(best.poseKey);
-    let pieceBroken = false;
-    if (best.kind === 'helmet') {
-        if (a.helmetHits < HELMET_HITS_TO_BREAK) {
-            a.helmetHits += 1;
-            pieceBroken = a.helmetHits >= HELMET_HITS_TO_BREAK;
-        }
-    } else if (best.kind === 'vest') {
-        if (a.vestHits < VEST_HITS_TO_BREAK) {
-            a.vestHits += 1;
-            pieceBroken = a.vestHits >= VEST_HITS_TO_BREAK;
-        }
-    } else if (best.kind === 'gloveL') {
-        if (a.gloveLHits < GLOVE_HITS_TO_BREAK) {
-            a.gloveLHits += 1;
-            pieceBroken = a.gloveLHits >= GLOVE_HITS_TO_BREAK;
-        }
-    } else if (best.kind === 'gloveR') {
-        if (a.gloveRHits < GLOVE_HITS_TO_BREAK) {
-            a.gloveRHits += 1;
-            pieceBroken = a.gloveRHits >= GLOVE_HITS_TO_BREAK;
-        }
-    }
-
     inv.destroyed = true;
-    playHitSound();
     particles.push(new HitBurst(inv.x, inv.y, inv.color));
     for (let p = 0; p < 14; p++) particles.push(new Particle(inv.x, inv.y, inv.color, 'dot'));
     for (let p = 0; p < 10; p++) particles.push(new Particle(inv.x, inv.y, inv.color, 'spark'));
-    if (pieceBroken) {
-        for (let p = 0; p < 28; p++) particles.push(new Particle(best.cx, best.cy, '#e0e0e0', 'dot'));
-        for (let p = 0; p < 22; p++) particles.push(new Particle(best.cx, best.cy, '#00f3ff', 'spark'));
-        particles.push(new HitBurst(best.cx, best.cy, '#ffffff'));
-        if (best.kind === 'gloveL' || best.kind === 'gloveR') {
-            resetHandWeapon(handKeyFromPoseAndGlove(best.poseKey, best.kind));
-        }
-    }
+    damagePlayerArmorPiece(best.poseKey, best.kind, best.cx, best.cy, inv.color);
 }
 
 function makeThreeImages() {
@@ -3586,7 +3934,12 @@ function gameLoop(nowTime) {
         if (t.isBoss) t.update(dt, nowPerf);
         else t.update(dt);
         if (!t.destroyed && orderedPersons.length) {
-            tryInvaderPlayerArmorCollision(t, orderedPersons, displayLmByPoseKey, getScreenPoint);
+            if (t.hasBossLaser && t.laserState === 'firing') {
+                tryBossLaserPlayerCollision(t, orderedPersons, displayLmByPoseKey, getScreenPoint, nowPerf);
+            }
+            if (!t.isBoss) {
+                tryInvaderPlayerArmorCollision(t, orderedPersons, displayLmByPoseKey, getScreenPoint);
+            }
         }
         t.draw(canvasCtx);
         if (!t.destroyed && t.y > gameLayout.h + 120) {
@@ -3627,7 +3980,7 @@ function gameLoop(nowTime) {
                         }
                     } else {
                         if (t.isBoss) {
-                            const stage = bossDamageStage(t.armor, t.armorMax, t.isMega ? 4 : 3);
+                            const stage = bossDamageStage(t.armor, t.armorMax, bossStageCount(t));
                             if (t._lastDamageStage !== undefined && stage > t._lastDamageStage) {
                                 t.hitFlash = 1.15;
                                 particles.push(new HitBurst(t.x, t.y, '#ffeb3b'));
