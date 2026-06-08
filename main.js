@@ -3231,13 +3231,13 @@ function drawInvincibleTimer(ctx, poseKey, lm, getScreenPoint) {
         const earSpan = Math.hypot(st.rx - st.lx, st.ry - st.ly);
         if (earSpan < 10) return;
         cx = (st.lx + st.rx) * 0.5;
-        y = (st.ly + st.ry) * 0.5 - earSpan * 1.02;
+        y = (st.ly + st.ry) * 0.5 - earSpan * 1.2;
     } else {
         const nose = lm[0];
         if (!nose) return;
         const p = getScreenPoint(nose);
         cx = p.x;
-        y = p.y - gameLayout.minSide * 0.08;
+        y = p.y - gameLayout.minSide * 0.1;
     }
 
     const pulse = (Math.sin(performance.now() * 0.012) + 1) * 0.5;
