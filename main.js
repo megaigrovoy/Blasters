@@ -1684,8 +1684,6 @@ async function initializeModels() {
     await createPoseLandmarkerInstance();
 
     preloadGameAudio();
-    loadingElement.classList.remove('visible');
-    showMainMenu();
 }
 
 class Projectile {
@@ -3680,6 +3678,9 @@ function gameLoop(nowTime) {
 
 function showStartError(e) {
     console.error(e);
+    mainMenu?.classList.add('is-hidden');
+    hudGame?.classList.add('is-hidden');
+    canvasElement.style.visibility = 'hidden';
     const name = e?.name || '';
     const msg = e?.message || String(e);
     let hint = t('errHintDefault');
@@ -3724,9 +3725,11 @@ async function start() {
         await setupWebcam();
         await initializeModels();
         await preloadCharacterSprites();
+        loadingElement.classList.remove('visible');
+        showMainMenu();
     } catch (e) {
         showStartError(e);
     }
 }
 
-start();
+start().catch(showStartError);

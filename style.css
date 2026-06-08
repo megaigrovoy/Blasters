@@ -42,6 +42,8 @@ canvas {
   top: 0;
   left: 0;
   display: block;
+  /* До старта игры скрыт — иначе пустой чёрный слой поверх меню */
+  visibility: hidden;
   /* width/height заданы в JS = размеру буфера, без растягивания по 100vh */
   /* Mirror the canvas so it feels like a mirror */
   transform: scaleX(-1);
