@@ -385,16 +385,38 @@ function getMediapipeWasmUrl() {
 
 let htmlAudioUnlocked = false;
 let audioUnlockBusy = false;
+let webAudioUnlocked = false;
 
-function resumeSharedAudioContext() {
+/**
+ * iOS/iPadOS Safari запускает AudioContext в состоянии suspended, если он создан вне
+ * пользовательского жеста. Один лишь resume() (он асинхронный) не делает контекст звучащим
+ * к моменту первого src.start(). Канонический разблок — проиграть пустой буфер внутри жеста.
+ * Должна вызываться синхронно из обработчика клика/тача.
+ */
+function unlockWebAudioInGesture() {
     const ctx = getOrCreateSfxContext();
-    if (ctx && ctx.state === 'suspended') void ctx.resume();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+        try {
+            const p = ctx.resume();
+            if (p && typeof p.then === 'function') p.catch(() => {});
+        } catch (_) {}
+    }
+    try {
+        const buffer = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        src.connect(ctx.destination);
+        src.start(0);
+    } catch (_) {}
+    if (ctx.state === 'running') webAudioUnlocked = true;
 }
 
 function tryUnlockAudioOnUserGesture() {
+    // Web Audio разблокируем на КАЖДОМ жесте, пока контекст не зазвучит (дёшево, синхронно).
+    if (!webAudioUnlocked) unlockWebAudioInGesture();
     if (htmlAudioUnlocked || audioUnlockBusy) return;
     audioUnlockBusy = true;
-    resumeSharedAudioContext();
     const srcs = [SFX_SHOOT_URLS[0], SFX_HIT_URLS[0], MENU_MUSIC_URL];
     const playSrcAt = (i) => {
         if (i >= srcs.length) return Promise.reject(new Error('no unlock src'));
@@ -1517,14 +1539,10 @@ function triggerGameOver() {
     gameOverOverlay?.classList.remove('is-hidden');
 }
 
-function playerLoadoutFullyDestroyed(poseKey) {
+/** Обе перчатки игрока сломаны — он больше не может стрелять. */
+function playerGlovesDestroyed(poseKey) {
     const a = getOrCreatePlayerArmor(poseKey);
-    return (
-        a.helmetHits >= HELMET_HITS_TO_BREAK &&
-        a.vestHits >= VEST_HITS_TO_BREAK &&
-        a.gloveLHits >= GLOVE_HITS_TO_BREAK &&
-        a.gloveRHits >= GLOVE_HITS_TO_BREAK
-    );
+    return a.gloveLHits >= GLOVE_HITS_TO_BREAK && a.gloveRHits >= GLOVE_HITS_TO_BREAK;
 }
 
 function clearShootTutorial() {
@@ -2217,8 +2235,10 @@ function applyPowerUp(type, poseKey, handKey) {
         case 'invincible': {
             const b = playerBuffByPoseKey.get(poseKey) ?? {};
             b.invincibleUntil = now + POWERUP_DURATION_MS;
-            b.invincibleRestoreDone = false;
+            b.invincibleRestoreDone = true;
             playerBuffByPoseKey.set(poseKey, b);
+            restorePlayerArmor(poseKey);
+            particles.push(new HitBurst(gameLayout.w * 0.5, gameLayout.minSide * 0.35, '#ffd740'));
             break;
         }
         case 'spread': {
@@ -4084,7 +4104,9 @@ function gameLoop(nowTime) {
     }
 
     if (isPlaying && orderedPersons.length > 0) {
-        if (orderedPersons.every((p) => playerLoadoutFullyDestroyed(p.key))) {
+        // 1 игрок: game over, когда у него сломаны обе перчатки.
+        // 2 игрока: game over, когда обе перчатки сломаны у всех игроков в кадре.
+        if (orderedPersons.every((p) => playerGlovesDestroyed(p.key))) {
             triggerGameOver();
         }
     }
