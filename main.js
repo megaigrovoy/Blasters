@@ -275,10 +275,18 @@ function ensureSfxAudioBuffer(ctx, url) {
     return p;
 }
 
+/** @returns {boolean} true — звук ушёл в Web Audio; false — контекст не звучит (нужен fallback). */
 function playDecodedSfx(ctx, buffer, volume) {
-    if (ctx.state === 'suspended') void ctx.resume();
+    if (ctx.state !== 'running') {
+        if (ctx.state === 'suspended') {
+            try {
+                void ctx.resume();
+            } catch (_) {}
+        }
+        return false;
+    }
     const v = Math.max(0, volume);
-    if (v <= 0) return;
+    if (v <= 0) return true;
     const src = ctx.createBufferSource();
     const gain = ctx.createGain();
     gain.gain.value = v;
@@ -286,6 +294,7 @@ function playDecodedSfx(ctx, buffer, volume) {
     src.connect(gain);
     gain.connect(ctx.destination);
     src.start(0);
+    return true;
 }
 
 function playOneShotSfx(url, volume) {
@@ -293,31 +302,38 @@ function playOneShotSfx(url, volume) {
     const effectiveVol = volume * sfxVolume01;
     if (effectiveVol <= 0) return;
     const ctx = window.__blastersAudioCtx || getOrCreateSfxContext();
-    const ready = ctx && sfxAudioBufferByUrl.get(url);
-    if (ctx && ready) {
+    // Пока Web Audio контекст не «running» (типично на iOS до жеста/в первые мгновения) —
+    // звук из него уходит в тишину. Играем через HTML Audio (он уже разблокирован в жесте).
+    if (!ctx || ctx.state !== 'running') {
+        if (ctx && ctx.state === 'suspended') {
+            try {
+                void ctx.resume();
+            } catch (_) {}
+        }
+        fallbackHtmlOneShot(url, effectiveVol);
+        return;
+    }
+    const ready = sfxAudioBufferByUrl.get(url);
+    if (ready) {
         try {
-            playDecodedSfx(ctx, ready, effectiveVol);
+            if (!playDecodedSfx(ctx, ready, effectiveVol)) fallbackHtmlOneShot(url, effectiveVol);
         } catch (_) {
             fallbackHtmlOneShot(url, effectiveVol);
         }
         return;
     }
-    if (ctx) {
-        void ensureSfxAudioBuffer(ctx, url)
-            .then((buf) => {
-                if (sfxVolume01 <= 0) return;
-                const ev = volume * sfxVolume01;
-                if (ev <= 0) return;
-                try {
-                    playDecodedSfx(ctx, buf, ev);
-                } catch (_) {
-                    fallbackHtmlOneShot(url, ev);
-                }
-            })
-            .catch(() => fallbackHtmlOneShot(url, effectiveVol));
-        return;
-    }
-    fallbackHtmlOneShot(url, effectiveVol);
+    void ensureSfxAudioBuffer(ctx, url)
+        .then((buf) => {
+            if (sfxVolume01 <= 0) return;
+            const ev = volume * sfxVolume01;
+            if (ev <= 0) return;
+            try {
+                if (!playDecodedSfx(ctx, buf, ev)) fallbackHtmlOneShot(url, ev);
+            } catch (_) {
+                fallbackHtmlOneShot(url, ev);
+            }
+        })
+        .catch(() => fallbackHtmlOneShot(url, effectiveVol));
 }
 
 function fallbackHtmlOneShot(url, volume) {
@@ -351,20 +367,6 @@ function scheduleStaggeredOstPreload() {
     }
 }
 
-function warmSfxAudioBuffersYielding() {
-    const ctx = getOrCreateSfxContext();
-    if (!ctx) return;
-    const sfxOnly = [...new Set([...SFX_SHOOT_URLS, ...SFX_HIT_URLS])].filter(Boolean);
-    void (async () => {
-        for (const u of sfxOnly) {
-            try {
-                await ensureSfxAudioBuffer(ctx, u);
-            } catch (_) {}
-            await new Promise((r) => setTimeout(r, 16));
-        }
-    })();
-}
-
 /**
  * Быстрый параллельный прогрев SFX. Вызывается в пользовательском жесте: на iOS
  * decodeAudioData надёжно отрабатывает только при резюмированном контексте,
@@ -380,10 +382,12 @@ function warmSfxAudioBuffersNow() {
 }
 
 function preloadGameAudio() {
+    // ВАЖНО: AudioContext НЕ создаём при загрузке. На iOS контекст, созданный вне
+    // пользовательского жеста, может остаться «немым» даже после resume(). Поэтому здесь
+    // только прогреваем сетевой кэш через HTML Audio; декод в буферы — уже в жесте (warmSfxAudioBuffersNow).
     if (sfxVolume01 > 0) {
         const sfxUrls = [...new Set([...SFX_SHOOT_URLS, ...SFX_HIT_URLS])].filter(Boolean);
         for (const u of sfxUrls) preloadHtmlAudioUrl(u);
-        warmSfxAudioBuffersYielding();
     }
     if (musicVolume01 > 0) {
         preloadHtmlAudioUrl(MENU_MUSIC_URL);
