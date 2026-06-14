@@ -365,6 +365,20 @@ function warmSfxAudioBuffersYielding() {
     })();
 }
 
+/**
+ * Быстрый параллельный прогрев SFX. Вызывается в пользовательском жесте: на iOS
+ * decodeAudioData надёжно отрабатывает только при резюмированном контексте,
+ * поэтому декодируем сразу после разблокировки — к началу стрельбы буферы готовы.
+ */
+function warmSfxAudioBuffersNow() {
+    const ctx = getOrCreateSfxContext();
+    if (!ctx) return;
+    const sfxOnly = [...new Set([...SFX_SHOOT_URLS, ...SFX_HIT_URLS])].filter(Boolean);
+    for (const u of sfxOnly) {
+        if (!sfxAudioBufferByUrl.has(u)) void ensureSfxAudioBuffer(ctx, u).catch(() => {});
+    }
+}
+
 function preloadGameAudio() {
     if (sfxVolume01 > 0) {
         const sfxUrls = [...new Set([...SFX_SHOOT_URLS, ...SFX_HIT_URLS])].filter(Boolean);
@@ -415,6 +429,8 @@ function unlockWebAudioInGesture() {
 function tryUnlockAudioOnUserGesture() {
     // Web Audio разблокируем на КАЖДОМ жесте, пока контекст не зазвучит (дёшево, синхронно).
     if (!webAudioUnlocked) unlockWebAudioInGesture();
+    // Декодируем SFX в жесте (резюмированный контекст), чтобы не было задержки первых выстрелов.
+    if (sfxVolume01 > 0) warmSfxAudioBuffersNow();
     if (htmlAudioUnlocked || audioUnlockBusy) return;
     audioUnlockBusy = true;
     const srcs = [SFX_SHOOT_URLS[0], SFX_HIT_URLS[0], MENU_MUSIC_URL];
