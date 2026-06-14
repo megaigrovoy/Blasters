@@ -246,7 +246,16 @@ function getOrCreateSfxContext() {
     try {
         const AC = window.AudioContext || window.webkitAudioContext;
         if (!AC) return null;
-        if (!window.__blastersAudioCtx) window.__blastersAudioCtx = new AC();
+        if (!window.__blastersAudioCtx) {
+            const ctx = new AC();
+            window.__blastersAudioCtx = ctx;
+            // На iOS первая resume() на свежем контексте может «дозреть» позже — ловим переход в running.
+            try {
+                ctx.onstatechange = () => {
+                    if (ctx.state === 'running') webAudioUnlocked = true;
+                };
+            } catch (_) {}
+        }
         return window.__blastersAudioCtx;
     } catch (_) {
         return null;
@@ -405,6 +414,10 @@ let htmlAudioUnlocked = false;
 let audioUnlockBusy = false;
 let webAudioUnlocked = false;
 
+/** Мгновенный «тихий» WAV (без сети) — надёжно разблокирует HTML-аудио на iOS внутри жеста. */
+const SILENT_AUDIO_DATA_URI =
+    'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+
 /**
  * iOS/iPadOS Safari запускает AudioContext в состоянии suspended, если он создан вне
  * пользовательского жеста. Один лишь resume() (он асинхронный) не делает контекст звучащим
@@ -437,7 +450,8 @@ function tryUnlockAudioOnUserGesture() {
     if (sfxVolume01 > 0) warmSfxAudioBuffersNow();
     if (htmlAudioUnlocked || audioUnlockBusy) return;
     audioUnlockBusy = true;
-    const srcs = [SFX_SHOOT_URLS[0], SFX_HIT_URLS[0], MENU_MUSIC_URL];
+    // Тихий data-URI первым: играет мгновенно в жесте и разблокирует HTML-аудио уже в первой игре.
+    const srcs = [SILENT_AUDIO_DATA_URI, SFX_SHOOT_URLS[0], SFX_HIT_URLS[0], MENU_MUSIC_URL];
     const playSrcAt = (i) => {
         if (i >= srcs.length) return Promise.reject(new Error('no unlock src'));
         const a = new Audio();
@@ -1765,6 +1779,11 @@ mainMenu.addEventListener(
     },
     { capture: true, passive: true }
 );
+
+// Страховка: любой первый жест на странице (loading-экран, кнопки в углах и т.п.) — разблокировать аудио.
+for (const evt of ['pointerdown', 'touchend', 'click']) {
+    document.addEventListener(evt, () => tryUnlockAudioOnUserGesture(), { capture: true, passive: true });
+}
 
 const volSfxEl = document.getElementById('vol-sfx');
 const volMusicEl = document.getElementById('vol-music');
