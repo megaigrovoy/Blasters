@@ -3810,6 +3810,31 @@ function getGlovePickupDiscs(poseKey, lm, getScreenPoint) {
     return discs;
 }
 
+/** Точки тела для сбора звезды: голова, плечи, локти, запястья, кисти, бёдра. */
+const BODY_PICKUP_LANDMARKS = [0, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
+
+/** Звезду можно собрать любой частью трекера — диски по всем видимым точкам тела. */
+function getBodyPickupDiscs(lm, getScreenPoint) {
+    const discs = [];
+    let scale = 60;
+    const ls = lm[11];
+    const rs = lm[12];
+    if (ls && rs) {
+        const p11 = getScreenPoint(ls);
+        const p12 = getScreenPoint(rs);
+        const w = Math.hypot(p12.x - p11.x, p12.y - p11.y);
+        if (w > 14) scale = w;
+    }
+    const r = Math.max(34, scale * 0.24);
+    for (const idx of BODY_PICKUP_LANDMARKS) {
+        const p = lm[idx];
+        if (!p || (p.visibility ?? 1) < 0.4) continue;
+        const s = getScreenPoint(p);
+        discs.push({ x: s.x, y: s.y, r, handKey: null });
+    }
+    return discs;
+}
+
 function collectPowerUps(orderedPersons, displayLmByPoseKey, getScreenPoint) {
     for (let i = powerUpDrops.length - 1; i >= 0; i--) {
         const drop = powerUpDrops[i];
@@ -3821,7 +3846,10 @@ function collectPowerUps(orderedPersons, displayLmByPoseKey, getScreenPoint) {
         for (const { key: poseKey } of orderedPersons) {
             const lm = displayLmByPoseKey.get(poseKey);
             if (!lm) continue;
-            const discs = getGlovePickupDiscs(poseKey, lm, getScreenPoint);
+            const discs =
+                drop.type === 'invincible'
+                    ? getBodyPickupDiscs(lm, getScreenPoint)
+                    : getGlovePickupDiscs(poseKey, lm, getScreenPoint);
             for (const disc of discs) {
                 if (!circleHit(drop.x, drop.y, drop.r, disc.x, disc.y, disc.r)) continue;
                 applyPowerUp(drop.type, poseKey, disc.handKey);
