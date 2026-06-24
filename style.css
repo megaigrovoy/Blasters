@@ -657,6 +657,48 @@ canvas {
   .btn-fullscreen-label { display: none; }
 }
 
+.btn-gallery {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.52rem 0.85rem;
+  border-radius: 14px;
+  border: 1px solid rgba(78, 184, 255, 0.32);
+  background: var(--poster-card);
+  color: var(--poster-ink);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 6;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 14px rgba(78, 184, 255, 0.1);
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.btn-gallery:hover {
+  border-color: rgba(255, 150, 50, 0.45);
+  box-shadow:
+    0 0 16px var(--poster-blue-glow),
+    0 0 20px var(--poster-orange-glow);
+}
+
+.btn-gallery:focus-visible {
+  outline: 2px solid var(--poster-blue);
+  outline-offset: 3px;
+}
+
+.btn-gallery-icon {
+  font-size: 1.08rem;
+  line-height: 1;
+  opacity: 0.95;
+}
+
 .menu-overlay {
   --poster-blue: #4eb8ff;
   --poster-blue-soft: rgba(78, 184, 255, 0.28);
