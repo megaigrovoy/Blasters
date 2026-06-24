@@ -1761,7 +1761,8 @@ mainMenu.addEventListener(
         if (e.target?.closest?.('#btn-start')) return;
         if (e.target?.closest?.('.menu-player-row')) return;
         if (e.target?.closest?.('.menu-options')) return;
-        if (e.target?.closest?.('.menu-top-bar')) return;
+        if (e.target?.closest?.('.menu-settings-grid')) return;
+        if (e.target?.closest?.('.menu-action-row')) return;
         playMenuMusic();
     },
     { capture: true }

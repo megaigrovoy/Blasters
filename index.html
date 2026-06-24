@@ -68,64 +68,66 @@
           <button type="button" id="btn-back-menu" class="btn-menu btn-back-menu" data-i18n="btnBackMenu">Меню</button>
         </div>
         <div id="main-menu" class="menu-overlay is-hidden">
-          <div class="menu-top-bar">
-            <button type="button" id="btn-fullscreen" class="btn-fullscreen" hidden>
-              <span class="btn-fullscreen-on" aria-hidden="true">⛶</span>
-              <span class="btn-fullscreen-off" aria-hidden="true">⛶</span>
-              <span class="btn-fullscreen-label" data-i18n="fullscreen">На весь экран</span>
-            </button>
-            <div class="menu-corner-panel">
-              <div class="menu-corner-panel-title" data-i18n="cornerLangTitle">ЯЗЫК</div>
-              <div class="menu-lang" role="radiogroup" aria-label="Language">
-                <label class="menu-lang-pill">
-                  <input type="radio" name="blasters-lang" id="opt-lang-ru" value="ru" checked />
-                  <span>RU</span>
-                </label>
-                <label class="menu-lang-pill">
-                  <input type="radio" name="blasters-lang" id="opt-lang-en" value="en" />
-                  <span>EN</span>
-                </label>
-              </div>
-            </div>
-            <div class="menu-corner-panel">
-              <div class="menu-corner-panel-title" data-i18n="cornerPlayersTitle">ИГРОКИ</div>
-              <div
-                class="menu-player-quick"
-                role="group"
-                id="players-count-group"
-                aria-label="Игроков на камере"
-              >
-                <button type="button" id="btn-players-1" class="btn-player-count" aria-pressed="false">1</button>
-                <button type="button" id="btn-players-2" class="btn-player-count" aria-pressed="true">2</button>
-              </div>
-            </div>
-            <a href="https://blagogames.com/games" class="btn-gallery" id="btn-gallery">
-              <span class="btn-gallery-icon" aria-hidden="true">🎮</span>
-              <span class="btn-gallery-label" data-i18n="galleryLink">Все игры</span>
-            </a>
-          </div>
           <div class="menu-panel">
             <div class="menu-poster-wrap">
               <img id="menu-poster" class="menu-poster" alt="Blasters" width="1200" height="675" />
             </div>
-            <div class="menu-cta">
-              <button type="button" id="btn-start" class="btn-start" data-i18n="btnStart">Играть</button>
+            <div class="menu-action-row">
+              <button type="button" id="btn-start" class="btn-start menu-action-play" data-i18n="btnStart">Играть</button>
+              <button type="button" id="btn-fullscreen" class="btn-menu-action btn-fullscreen" hidden>
+                <span class="btn-fullscreen-on" aria-hidden="true">⛶</span>
+                <span class="btn-fullscreen-off" aria-hidden="true">⛶</span>
+                <span class="btn-fullscreen-label" data-i18n="fullscreen">На весь экран</span>
+              </button>
+              <a href="https://blagogames.com/games" class="btn-menu-action btn-gallery" id="btn-gallery">
+                <span class="btn-gallery-icon" aria-hidden="true">🎮</span>
+                <span class="btn-gallery-label" data-i18n="galleryLink">Все игры</span>
+              </a>
             </div>
-            <div class="menu-options" role="group">
-              <div class="menu-options-title" data-i18n="optionsTitle">Звук и музыка</div>
-              <div class="menu-volume-row">
-                <div class="menu-volume-head">
-                  <span data-i18n="volSfx">Громкость эффектов</span>
-                  <span class="menu-volume-value" id="vol-sfx-val">100%</span>
+            <div class="menu-settings-grid">
+              <div class="menu-options" role="group">
+                <div class="menu-options-title" data-i18n="optionsTitle">Звук и музыка</div>
+                <div class="menu-volume-row">
+                  <div class="menu-volume-head">
+                    <span data-i18n="volSfx">Громкость эффектов</span>
+                    <span class="menu-volume-value" id="vol-sfx-val">100%</span>
+                  </div>
+                  <input type="range" id="vol-sfx" min="0" max="100" value="100" step="1" class="menu-volume-slider" aria-label="SFX volume" />
                 </div>
-                <input type="range" id="vol-sfx" min="0" max="100" value="100" step="1" class="menu-volume-slider" aria-label="SFX volume" />
+                <div class="menu-volume-row">
+                  <div class="menu-volume-head">
+                    <span data-i18n="volMusic">Громкость музыки</span>
+                    <span class="menu-volume-value" id="vol-music-val">100%</span>
+                  </div>
+                  <input type="range" id="vol-music" min="0" max="100" value="100" step="1" class="menu-volume-slider" aria-label="Music volume" />
+                </div>
               </div>
-              <div class="menu-volume-row">
-                <div class="menu-volume-head">
-                  <span data-i18n="volMusic">Громкость музыки</span>
-                  <span class="menu-volume-value" id="vol-music-val">100%</span>
+              <div class="menu-settings-right">
+                <div class="menu-inline-panel">
+                  <div class="menu-inline-panel-title" data-i18n="cornerLangTitle">ЯЗЫК</div>
+                  <div class="menu-lang" role="radiogroup" aria-label="Language">
+                    <label class="menu-lang-pill">
+                      <input type="radio" name="blasters-lang" id="opt-lang-ru" value="ru" checked />
+                      <span>RU</span>
+                    </label>
+                    <label class="menu-lang-pill">
+                      <input type="radio" name="blasters-lang" id="opt-lang-en" value="en" />
+                      <span>EN</span>
+                    </label>
+                  </div>
                 </div>
-                <input type="range" id="vol-music" min="0" max="100" value="100" step="1" class="menu-volume-slider" aria-label="Music volume" />
+                <div class="menu-inline-panel">
+                  <div class="menu-inline-panel-title" data-i18n="cornerPlayersTitle">ИГРОКИ</div>
+                  <div
+                    class="menu-player-quick"
+                    role="group"
+                    id="players-count-group"
+                    aria-label="Игроков на камере"
+                  >
+                    <button type="button" id="btn-players-1" class="btn-player-count" aria-pressed="false">1</button>
+                    <button type="button" id="btn-players-2" class="btn-player-count" aria-pressed="true">2</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
