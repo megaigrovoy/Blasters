@@ -584,6 +584,9 @@ if (shootTutorialImg) {
 
 let poseLandmarker;
 let visionTasksResolver = null;
+let poseModelReadyPromise = null;
+let characterSpritesReadyPromise = null;
+let gameLaunchInProgress = false;
 let mediapipePoseDelegate = 'CPU';
 let lastVideoTime = -1;
 /** Монотонный timestamp для detectForVideo (Android иногда откатывает video.currentTime). */
@@ -1632,7 +1635,7 @@ function showMainMenu() {
     resetInvaderFormation();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     canvasElement.style.visibility = 'hidden';
-    void video.pause();
+    stopVideoTracks();
     playMenuMusic();
 }
 
@@ -1684,7 +1687,9 @@ function startGame(startLevel = 1) {
     });
 }
 
-btnStart?.addEventListener('click', () => startGame(1));
+btnStart?.addEventListener('click', () => {
+    void launchGameFromMenu();
+});
 btnBackMenu?.addEventListener('click', () => showMainMenu());
 btnCampaignMenu?.addEventListener('click', () => showMainMenu());
 
@@ -1827,7 +1832,11 @@ function setPlayerMode(next, userInitiated) {
     playerModeCount = next;
     localStorage.setItem(STORAGE_PLAYER_COUNT, String(playerModeCount));
     syncPlayerCountButtons();
-    if (userInitiated) void recreatePoseLandmarker();
+    if (userInitiated && visionTasksResolver) {
+        poseModelReadyPromise = recreatePoseLandmarker().finally(() => {
+            poseModelReadyPromise = null;
+        });
+    }
 }
 
 btnPlayers1?.addEventListener('click', () => setPlayerMode(1, true));
@@ -2079,6 +2088,23 @@ async function initializeModels() {
     await createPoseLandmarkerInstance();
 
     preloadGameAudio();
+}
+
+function ensurePoseModelReady() {
+    if (poseLandmarker) return Promise.resolve();
+    if (!poseModelReadyPromise) {
+        poseModelReadyPromise = initializeModels().finally(() => {
+            poseModelReadyPromise = null;
+        });
+    }
+    return poseModelReadyPromise;
+}
+
+function ensureCharacterSpritesReady() {
+    if (!characterSpritesReadyPromise) {
+        characterSpritesReadyPromise = preloadCharacterSprites();
+    }
+    return characterSpritesReadyPromise;
 }
 
 class Projectile {
@@ -4208,16 +4234,38 @@ function showStartError(e) {
     if (ld) ld.textContent = '';
 }
 
-async function start() {
+async function launchGameFromMenu() {
+    if (gameLaunchInProgress) return;
+    gameLaunchInProgress = true;
+    if (btnStart) btnStart.disabled = true;
+    mainMenu?.classList.add('is-hidden');
+    loadingElement?.classList.add('visible');
+    const loadingText = document.getElementById('loading-text');
+    if (loadingText) loadingText.textContent = t('loadingModels');
+
     try {
+        // Камеру запрашиваем только после явного нажатия «Играть».
         await setupWebcam();
-        await initializeModels();
-        await preloadCharacterSprites();
-        loadingElement.classList.remove('visible');
-        showMainMenu();
+        await Promise.all([ensurePoseModelReady(), ensureCharacterSpritesReady()]);
+        loadingElement?.classList.remove('visible');
+        startGame(1);
     } catch (e) {
+        stopVideoTracks();
         showStartError(e);
+    } finally {
+        gameLaunchInProgress = false;
+        if (btnStart) btnStart.disabled = false;
     }
+}
+
+async function start() {
+    // Меню доступно сразу: камера и MediaPipe загружаются только после «Играть».
+    loadingElement.classList.remove('visible');
+    showMainMenu();
+    // Спрайты можно безопасно прогреть в фоне — они не требуют разрешения камеры.
+    void ensureCharacterSpritesReady().catch((e) => {
+        console.warn('[Blasters] character sprite preload:', e);
+    });
 }
 
 start().catch(showStartError);
