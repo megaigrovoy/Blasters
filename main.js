@@ -211,26 +211,12 @@ const SFX_SHOOT_URLS = [
     new URL('./src/assets/sounds/blaster/blaster1.MP3', import.meta.url).href
 ];
 
-const SFX_HIT_URLS = [
-    new URL('./src/assets/sounds/Sound Of Meat Slice.mp3', import.meta.url).href,
-    new URL('./src/assets/sounds/Sound Of Meat Slice2.mp3', import.meta.url).href,
-    new URL('./src/assets/sounds/Sound Of Fruit Slice.mp3', import.meta.url).href,
-    new URL('./src/assets/sounds/Sound Of Fruit Slice 3.mp3', import.meta.url).href
-];
-
 let shootSfxRot = 0;
-let hitSfxRot = 0;
 
 function playShootSound() {
     if (sfxVolume01 <= 0) return;
     const url = SFX_SHOOT_URLS[shootSfxRot++ % SFX_SHOOT_URLS.length];
     playOneShotSfx(url, 0.52);
-}
-
-function playHitSound() {
-    if (sfxVolume01 <= 0) return;
-    const url = SFX_HIT_URLS[hitSfxRot++ % SFX_HIT_URLS.length];
-    playOneShotSfx(url, 0.82);
 }
 
 const MENU_MUSIC_URL = new URL('./src/assets/sounds/menu.mp3', import.meta.url).href;
@@ -386,7 +372,7 @@ function scheduleStaggeredOstPreload() {
 function warmSfxAudioBuffersNow() {
     const ctx = getOrCreateSfxContext();
     if (!ctx) return;
-    const sfxOnly = [...new Set([...SFX_SHOOT_URLS, ...SFX_HIT_URLS])].filter(Boolean);
+    const sfxOnly = [...new Set(SFX_SHOOT_URLS)].filter(Boolean);
     for (const u of sfxOnly) {
         if (!sfxAudioBufferByUrl.has(u)) void ensureSfxAudioBuffer(ctx, u).catch(() => {});
     }
@@ -397,7 +383,7 @@ function preloadGameAudio() {
     // пользовательского жеста, может остаться «немым» даже после resume(). Поэтому здесь
     // только прогреваем сетевой кэш через HTML Audio; декод в буферы — уже в жесте (warmSfxAudioBuffersNow).
     if (sfxVolume01 > 0) {
-        const sfxUrls = [...new Set([...SFX_SHOOT_URLS, ...SFX_HIT_URLS])].filter(Boolean);
+        const sfxUrls = [...new Set(SFX_SHOOT_URLS)].filter(Boolean);
         for (const u of sfxUrls) preloadHtmlAudioUrl(u);
     }
     if (musicVolume01 > 0) {
@@ -453,7 +439,7 @@ function tryUnlockAudioOnUserGesture() {
     if (htmlAudioUnlocked || audioUnlockBusy) return;
     audioUnlockBusy = true;
     // Тихий data-URI первым: играет мгновенно в жесте и разблокирует HTML-аудио уже в первой игре.
-    const srcs = [SILENT_AUDIO_DATA_URI, SFX_SHOOT_URLS[0], SFX_HIT_URLS[0], MENU_MUSIC_URL];
+    const srcs = [SILENT_AUDIO_DATA_URI, SFX_SHOOT_URLS[0], MENU_MUSIC_URL];
     const playSrcAt = (i) => {
         if (i >= srcs.length) return Promise.reject(new Error('no unlock src'));
         const a = new Audio();
@@ -2636,7 +2622,7 @@ function shoulderMidScreen(lm, getScreenPoint) {
 
 /**
  * Сохраняет poseKey за «слотом» по близости центра плеч к прошлому кадру.
- * Пустой кадр не трогает stable (см. prunePlayerArmorState).
+ * Пустой кадр и временное исчезновение одного игрока не удаляют сохранённые слоты.
  */
 function bindStablePoseKeys(sortedPersons, getScreenPoint) {
     const items = [];
@@ -2658,17 +2644,20 @@ function bindStablePoseKeys(sortedPersons, getScreenPoint) {
 
     if (items.length === 1) {
         if (stablePoseShoulderMid.length >= 2) {
-            let bestKey = stablePoseShoulderMid[0].key;
+            let bestSlot = stablePoseShoulderMid[0];
             let bestD = Infinity;
             for (const s of stablePoseShoulderMid) {
                 const d = Math.hypot(items[0].mid.x - s.x, items[0].mid.y - s.y);
                 if (d < bestD) {
                     bestD = d;
-                    bestKey = s.key;
+                    bestSlot = s;
                 }
             }
-            stablePoseShoulderMid = [{ key: bestKey, x: items[0].mid.x, y: items[0].mid.y }];
-            return [{ lm: items[0].lm, key: bestKey }];
+            // Не удаляем слот временно скрытого игрока: его броня, бонусы и оружие
+            // должны остаться привязаны к прежнему Pose#N после выхода из-за партнёра.
+            bestSlot.x = items[0].mid.x;
+            bestSlot.y = items[0].mid.y;
+            return [{ lm: items[0].lm, key: bestSlot.key }];
         }
         if (stablePoseShoulderMid.length === 1) {
             stablePoseShoulderMid[0].x = items[0].mid.x;
@@ -2796,7 +2785,9 @@ function buildKeyedHandsFromPose(orderedPersons, lmByPoseKey) {
     for (let p = 0; p < orderedPersons.length; p++) {
         const pkMatch = orderedPersons[p].key.match(/^Pose#(\d+)$/);
         const playerSuffix = pkMatch ? parseInt(pkMatch[1], 10) : p;
-        const suffix = orderedPersons.length > 1 ? `#${playerSuffix}` : '';
+        // В режиме двух игроков сохраняем ключ PoseLeft/Right#N, даже если один
+        // человек временно не распознан. Иначе Pose#1 ошибочно использует состояние Pose#0.
+        const suffix = playerModeCount > 1 ? `#${playerSuffix}` : '';
         const poseLm =
             lmByPoseKey?.get(orderedPersons[p].key) ??
             cachedSmoothedLmByPoseKey.get(orderedPersons[p].key) ??
@@ -3053,13 +3044,6 @@ const GLOVE_HIT_R_MUL = 0.2;
 /** По игроку (poseKey): урон жилета и шлема от столкновения с захватчиком. */
 const playerArmorByPoseKey = new Map();
 
-function prunePlayerArmorState(activePoseKeys) {
-    if (activePoseKeys.size === 0) return;
-    for (const k of [...playerArmorByPoseKey.keys()]) {
-        if (!activePoseKeys.has(k)) playerArmorByPoseKey.delete(k);
-    }
-}
-
 function getOrCreatePlayerArmor(poseKey) {
     let a = playerArmorByPoseKey.get(poseKey);
     if (!a) {
@@ -3139,7 +3123,6 @@ function damagePlayerArmorPiece(poseKey, kind, hitX, hitY, burstColor) {
         }
     }
 
-    playHitSound();
     particles.push(new HitBurst(hitX, hitY, burstColor));
     for (let p = 0; p < 10; p++) particles.push(new Particle(hitX, hitY, burstColor, 'dot'));
     for (let p = 0; p < 8; p++) particles.push(new Particle(hitX, hitY, burstColor, 'spark'));
@@ -3860,7 +3843,6 @@ function collectPowerUps(orderedPersons, displayLmByPoseKey, getScreenPoint) {
                 for (let p = 0; p < 10; p++) particles.push(new Particle(drop.x, drop.y, drop.color, 'spark'));
                 drop.dead = true;
                 taken = true;
-                playHitSound();
                 break;
             }
             if (taken) break;
@@ -3951,7 +3933,6 @@ function gameLoop(nowTime) {
             prunePoseDisplayState(activePoseKeys);
             pruneHelmetPoseOverlayState(activePoseKeys);
             pruneGauntletOverlayState(activePoseKeys);
-            prunePlayerArmorState(activePoseKeys);
             commitPoseTargetsFromFrame(orderedPersons, nowPoseMs);
         }
 
@@ -4121,7 +4102,6 @@ function gameLoop(nowTime) {
                         trySpawnPowerUpDrop(t.x, t.y, t);
                         score += t.scoreValue ?? GAME_CFG.scoreTarget;
                         scoreDisplay.innerText = formatScore(score);
-                        playHitSound();
                         particles.push(new HitBurst(t.x, t.y, t.color));
                         const burstN = t.isBoss ? 42 : 18;
                         const sparkN = t.isBoss ? 28 : 12;
