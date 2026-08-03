@@ -211,26 +211,12 @@ const SFX_SHOOT_URLS = [
     new URL('./src/assets/sounds/blaster/blaster1.MP3', import.meta.url).href
 ];
 
-const SFX_HIT_URLS = [
-    new URL('./src/assets/sounds/Sound Of Meat Slice.mp3', import.meta.url).href,
-    new URL('./src/assets/sounds/Sound Of Meat Slice2.mp3', import.meta.url).href,
-    new URL('./src/assets/sounds/Sound Of Fruit Slice.mp3', import.meta.url).href,
-    new URL('./src/assets/sounds/Sound Of Fruit Slice 3.mp3', import.meta.url).href
-];
-
 let shootSfxRot = 0;
-let hitSfxRot = 0;
 
 function playShootSound() {
     if (sfxVolume01 <= 0) return;
     const url = SFX_SHOOT_URLS[shootSfxRot++ % SFX_SHOOT_URLS.length];
     playOneShotSfx(url, 0.52);
-}
-
-function playHitSound() {
-    if (sfxVolume01 <= 0) return;
-    const url = SFX_HIT_URLS[hitSfxRot++ % SFX_HIT_URLS.length];
-    playOneShotSfx(url, 0.82);
 }
 
 const MENU_MUSIC_URL = new URL('./src/assets/sounds/menu.mp3', import.meta.url).href;
@@ -386,7 +372,7 @@ function scheduleStaggeredOstPreload() {
 function warmSfxAudioBuffersNow() {
     const ctx = getOrCreateSfxContext();
     if (!ctx) return;
-    const sfxOnly = [...new Set([...SFX_SHOOT_URLS, ...SFX_HIT_URLS])].filter(Boolean);
+    const sfxOnly = [...new Set(SFX_SHOOT_URLS)].filter(Boolean);
     for (const u of sfxOnly) {
         if (!sfxAudioBufferByUrl.has(u)) void ensureSfxAudioBuffer(ctx, u).catch(() => {});
     }
@@ -397,7 +383,7 @@ function preloadGameAudio() {
     // пользовательского жеста, может остаться «немым» даже после resume(). Поэтому здесь
     // только прогреваем сетевой кэш через HTML Audio; декод в буферы — уже в жесте (warmSfxAudioBuffersNow).
     if (sfxVolume01 > 0) {
-        const sfxUrls = [...new Set([...SFX_SHOOT_URLS, ...SFX_HIT_URLS])].filter(Boolean);
+        const sfxUrls = [...new Set(SFX_SHOOT_URLS)].filter(Boolean);
         for (const u of sfxUrls) preloadHtmlAudioUrl(u);
     }
     if (musicVolume01 > 0) {
@@ -453,7 +439,7 @@ function tryUnlockAudioOnUserGesture() {
     if (htmlAudioUnlocked || audioUnlockBusy) return;
     audioUnlockBusy = true;
     // Тихий data-URI первым: играет мгновенно в жесте и разблокирует HTML-аудио уже в первой игре.
-    const srcs = [SILENT_AUDIO_DATA_URI, SFX_SHOOT_URLS[0], SFX_HIT_URLS[0], MENU_MUSIC_URL];
+    const srcs = [SILENT_AUDIO_DATA_URI, SFX_SHOOT_URLS[0], MENU_MUSIC_URL];
     const playSrcAt = (i) => {
         if (i >= srcs.length) return Promise.reject(new Error('no unlock src'));
         const a = new Audio();
@@ -3137,7 +3123,6 @@ function damagePlayerArmorPiece(poseKey, kind, hitX, hitY, burstColor) {
         }
     }
 
-    playHitSound();
     particles.push(new HitBurst(hitX, hitY, burstColor));
     for (let p = 0; p < 10; p++) particles.push(new Particle(hitX, hitY, burstColor, 'dot'));
     for (let p = 0; p < 8; p++) particles.push(new Particle(hitX, hitY, burstColor, 'spark'));
@@ -3858,7 +3843,6 @@ function collectPowerUps(orderedPersons, displayLmByPoseKey, getScreenPoint) {
                 for (let p = 0; p < 10; p++) particles.push(new Particle(drop.x, drop.y, drop.color, 'spark'));
                 drop.dead = true;
                 taken = true;
-                playHitSound();
                 break;
             }
             if (taken) break;
@@ -4118,7 +4102,6 @@ function gameLoop(nowTime) {
                         trySpawnPowerUpDrop(t.x, t.y, t);
                         score += t.scoreValue ?? GAME_CFG.scoreTarget;
                         scoreDisplay.innerText = formatScore(score);
-                        playHitSound();
                         particles.push(new HitBurst(t.x, t.y, t.color));
                         const burstN = t.isBoss ? 42 : 18;
                         const sparkN = t.isBoss ? 28 : 12;
