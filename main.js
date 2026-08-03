@@ -2636,7 +2636,7 @@ function shoulderMidScreen(lm, getScreenPoint) {
 
 /**
  * Сохраняет poseKey за «слотом» по близости центра плеч к прошлому кадру.
- * Пустой кадр не трогает stable (см. prunePlayerArmorState).
+ * Пустой кадр и временное исчезновение одного игрока не удаляют сохранённые слоты.
  */
 function bindStablePoseKeys(sortedPersons, getScreenPoint) {
     const items = [];
@@ -2658,17 +2658,20 @@ function bindStablePoseKeys(sortedPersons, getScreenPoint) {
 
     if (items.length === 1) {
         if (stablePoseShoulderMid.length >= 2) {
-            let bestKey = stablePoseShoulderMid[0].key;
+            let bestSlot = stablePoseShoulderMid[0];
             let bestD = Infinity;
             for (const s of stablePoseShoulderMid) {
                 const d = Math.hypot(items[0].mid.x - s.x, items[0].mid.y - s.y);
                 if (d < bestD) {
                     bestD = d;
-                    bestKey = s.key;
+                    bestSlot = s;
                 }
             }
-            stablePoseShoulderMid = [{ key: bestKey, x: items[0].mid.x, y: items[0].mid.y }];
-            return [{ lm: items[0].lm, key: bestKey }];
+            // Не удаляем слот временно скрытого игрока: его броня, бонусы и оружие
+            // должны остаться привязаны к прежнему Pose#N после выхода из-за партнёра.
+            bestSlot.x = items[0].mid.x;
+            bestSlot.y = items[0].mid.y;
+            return [{ lm: items[0].lm, key: bestSlot.key }];
         }
         if (stablePoseShoulderMid.length === 1) {
             stablePoseShoulderMid[0].x = items[0].mid.x;
@@ -2796,7 +2799,9 @@ function buildKeyedHandsFromPose(orderedPersons, lmByPoseKey) {
     for (let p = 0; p < orderedPersons.length; p++) {
         const pkMatch = orderedPersons[p].key.match(/^Pose#(\d+)$/);
         const playerSuffix = pkMatch ? parseInt(pkMatch[1], 10) : p;
-        const suffix = orderedPersons.length > 1 ? `#${playerSuffix}` : '';
+        // В режиме двух игроков сохраняем ключ PoseLeft/Right#N, даже если один
+        // человек временно не распознан. Иначе Pose#1 ошибочно использует состояние Pose#0.
+        const suffix = playerModeCount > 1 ? `#${playerSuffix}` : '';
         const poseLm =
             lmByPoseKey?.get(orderedPersons[p].key) ??
             cachedSmoothedLmByPoseKey.get(orderedPersons[p].key) ??
@@ -3052,13 +3057,6 @@ const GLOVE_HIT_R_MUL = 0.2;
 
 /** По игроку (poseKey): урон жилета и шлема от столкновения с захватчиком. */
 const playerArmorByPoseKey = new Map();
-
-function prunePlayerArmorState(activePoseKeys) {
-    if (activePoseKeys.size === 0) return;
-    for (const k of [...playerArmorByPoseKey.keys()]) {
-        if (!activePoseKeys.has(k)) playerArmorByPoseKey.delete(k);
-    }
-}
 
 function getOrCreatePlayerArmor(poseKey) {
     let a = playerArmorByPoseKey.get(poseKey);
@@ -3951,7 +3949,6 @@ function gameLoop(nowTime) {
             prunePoseDisplayState(activePoseKeys);
             pruneHelmetPoseOverlayState(activePoseKeys);
             pruneGauntletOverlayState(activePoseKeys);
-            prunePlayerArmorState(activePoseKeys);
             commitPoseTargetsFromFrame(orderedPersons, nowPoseMs);
         }
 
